@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.duckdb
+.DS_Store
+
+data/input/*
+data/suricata/*
+!data/input/.gitkeep
+!data/suricata/.gitkeep

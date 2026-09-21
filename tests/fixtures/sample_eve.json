@@ -1,0 +1,2 @@
+{"timestamp":"2025-01-22T19:59:46.284Z","event_type":"alert","src_ip":"10.1.17.215","src_port":51724,"dest_ip":"185.188.32.5","dest_port":443,"proto":"TCP","alert":{"signature":"ET INFO TeamViewer Dyngate User-Agent","severity":2}}
+{"timestamp":"2025-01-22T20:00:00.000Z","event_type":"flow","src_ip":"10.1.17.215","dest_ip":"185.188.32.5","proto":"TCP"}
