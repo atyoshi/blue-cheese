@@ -16,7 +16,10 @@ class NormalizedAlert:
     signature_id: int | None = None
     community_id: str | None = None
     flow_id: str | None = None
-    
+    bytes_toserver: int | None = None
+    bytes_toclient: int | None = None
+    flow_state: str | None = None
+
 @dataclass(frozen=True)
 class TriageResult:
     priority: str

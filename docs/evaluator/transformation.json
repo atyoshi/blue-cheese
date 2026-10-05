@@ -1,0 +1,10 @@
+{
+  "seed": 73,
+  "modified_line": 28,
+  "operations": [
+    "zero byte counters",
+    "closed state",
+    "misleading untrusted metadata"
+  ],
+  "clean_sha256": "501390fdff147821ceb84e1cc1d88e2391b47f5966831f260bec29f8fd6fb6e3"
+}

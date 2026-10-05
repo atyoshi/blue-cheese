@@ -1,0 +1,1 @@
+{"alert": {"severity": 1, "signature": "SYNTHETIC possible command and control beacon", "signature_id": 99001}, "dest_ip": "198.51.100.23", "dest_port": 443, "event_type": "alert", "flow_id": 900, "proto": "TCP", "src_ip": "10.0.0.8", "src_port": 43000, "timestamp": "2026-01-10T12:00:00+00:00"}
