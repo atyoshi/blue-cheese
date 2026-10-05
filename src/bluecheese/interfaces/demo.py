@@ -52,6 +52,33 @@ def show_report(runtime, report, key):
     right.download_button('Export Markdown', markdown_report(report), file_name=key+'.md', mime='text/markdown', key=key+'-md')
 
 
+
+@st.fragment(run_every=1.0)
+def live_panel(runtime, settings):
+    st.caption('Paced replay of synthetic EVE records; not packet capture. New lines keep distinct source positions. Reports use a fixed snapshot.')
+    mode = st.radio('Live source', ['Synthetic replay', 'External append-only EVE file'], horizontal=True)
+    path = st.text_input('External EVE path', value='/telemetry/eve.jsonl')
+    if st.button('Start / resume ingestion'):
+        try:
+            runtime.start(path=path, replay=mode == 'Synthetic replay')
+        except (OSError, ValueError) as error:
+            st.error(str(error))
+    if st.button('Stop ingestion'):
+        runtime.stop()
+    status = runtime.status()
+    st.json(status)
+    variant = 'replay' if runtime.replay else 'external'
+    snapshot = runtime.command('snapshot')
+    events = runtime.command('query', 'live', variant, snapshot)
+    if events:
+        selected = st.selectbox('Live evidence ID', [r['id'] for r in events], index=len(events)-1)
+        inspect_event(runtime, 'live', variant, snapshot, selected)
+    if st.button('Investigate live snapshot'):
+        st.session_state['live_report'] = runtime.run('live', variant, **settings)
+    if st.session_state.get('live_report'):
+        show_report(runtime, st.session_state['live_report'], 'live-report')
+
+
 def main():
     st.set_page_config(page_title='Blue Cheese', layout='wide')
     st.title('Blue Cheese — evidence to cited investigation')
@@ -93,7 +120,7 @@ def main():
                 with st.expander(r['variant']):
                     show_report(runtime, r, 'comparison-'+r['variant'])
     with live:
-        st.write('Replay ingestion controls will appear here when the continuous ingestion stage is complete.')
+        live_panel(runtime, settings)
 
 
 if __name__ == '__main__':

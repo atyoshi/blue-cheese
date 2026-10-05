@@ -22,3 +22,24 @@ def test_presentation_rerun_and_evidence(tmp_path, monkeypatch):
     app.button[0].click().run()
     assert app.session_state['report']['verdict'] == 'BENIGN_CONFOUNDER'
     assert not app.exception
+
+
+def test_ui_reuses_worker_and_saved_live_run(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv('BLUECHEESE_STATE', str(tmp_path))
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    next(b for b in app.button if b.label == 'Start / resume ingestion').click().run()
+    def status():
+        return next(json.loads(j.value) for j in app.json if 'worker_starts' in j.value)
+    assert status()['worker_starts'] == 1
+    app.run()
+    assert status()['worker_starts'] == 1
+    next(b for b in app.button if b.label == 'Stop ingestion').click().run()
+    next(b for b in app.button if b.label == 'Investigate live snapshot').click().run()
+    saved = app.session_state['live_report']
+    app.run()  # status is displayed before the button action in its rendering pass
+    count = status()['investigation_runs']
+    app.run()
+    assert status()['investigation_runs'] == count
+    assert app.session_state['live_report'] == saved
+    assert not app.exception
