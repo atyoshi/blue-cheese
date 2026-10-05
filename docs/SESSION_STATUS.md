@@ -1,7 +1,7 @@
 # Session status
 1. Baseline: complete. Existing CLI/SQLite/Suricata pipeline retained; 10 tests passed.
 2. Scenarios / shared normalization / DuckDB: complete. 30 synthetic records, seeded poisoned copy, benign/insufficient fixtures; 4 focused tests passed.
-3. Investigator / executable Falsifier / cited exports: pending.
+3. Investigator / executable Falsifier / cited exports: complete. Offline provider, scoped retrieval ledger, call/time budgets, ablation, JSON/Markdown. 7 investigation tests passed.
 4. Streamlit presentation: pending.
 5. Continuous append-only ingestion / replay: pending.
 6. Verification / packaging / walkthrough: pending.
