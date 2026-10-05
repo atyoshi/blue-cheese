@@ -1,0 +1,16 @@
+%YAML 1.1
+---
+classification-file: /dev/null
+reference-config-file: /dev/null
+vars:
+  address-groups:
+    HOME_NET: "[10.0.0.0/8]"
+    EXTERNAL_NET: "any"
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert
+        - flow

@@ -5,7 +5,6 @@ from bluecheese.adapters.suricata import (
     read_suricata_alerts,
 )
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_eve.json"
 
 

@@ -1,6 +1,8 @@
 import json
-from bluecheese.domain.models import NormalizedAlert
 from pathlib import Path
+
+from bluecheese.domain.models import NormalizedAlert
+
 
 def normalize_suricata_alert(record: dict) -> NormalizedAlert:
     alert = record.get("alert", {})
@@ -16,6 +18,9 @@ def normalize_suricata_alert(record: dict) -> NormalizedAlert:
         protocol=record.get("proto"),
         alert_signature=alert.get("signature", "Unknown alert"),
         severity=alert.get("severity"),
+        signature_id=alert.get("signature_id"),
+        community_id=record.get("community_id"),
+        flow_id=str(record["flow_id"]) if record.get("flow_id") is not None else None,
     )
     
 def read_suricata_alerts(path: str):

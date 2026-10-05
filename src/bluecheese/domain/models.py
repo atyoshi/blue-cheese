@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class NormalizedAlert:
     timestamp: str
@@ -12,9 +13,14 @@ class NormalizedAlert:
     protocol: str | None
     alert_signature: str
     severity: int | None
+    signature_id: int | None = None
+    community_id: str | None = None
+    flow_id: str | None = None
     
 @dataclass(frozen=True)
 class TriageResult:
     priority: str
     disposition: str
     rationale: str
+    evidence_ids: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()

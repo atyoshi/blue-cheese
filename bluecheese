@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+project_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
+export PYTHONPATH="$project_dir/src${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m bluecheese.cli "$@"
