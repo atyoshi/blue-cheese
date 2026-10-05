@@ -12,3 +12,11 @@ data/input/*
 data/suricata/*
 !data/input/.gitkeep
 !data/suricata/.gitkeep
+*.egg-info/
+.coverage
+htmlcov/
+demo-exports/
+telemetry/*
+!telemetry/.gitkeep
+build/
+dist/

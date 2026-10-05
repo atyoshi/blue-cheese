@@ -3,6 +3,8 @@ Name: blue-cheese
 Version: 0.1.0
 Summary: A lightweight, evidence-centered network security investigation framework
 Requires-Python: >=3.11
+Requires-Dist: duckdb==1.5.0
+Requires-Dist: streamlit==1.64.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8; extra == "dev"
 Requires-Dist: ruff>=0.6; extra == "dev"

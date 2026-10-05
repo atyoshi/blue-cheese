@@ -1,0 +1,16 @@
+services:
+  bluecheese:
+    build: .
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - evidence-state:/state
+      - replay-spool:/replay
+      - ${BLUECHEESE_TELEMETRY:-./telemetry}:/telemetry:ro
+    init: true
+    stop_grace_period: 10s
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  evidence-state:
+  replay-spool:

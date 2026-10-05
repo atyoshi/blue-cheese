@@ -20,6 +20,7 @@ class NormalizedAlert:
     bytes_toclient: int | None = None
     flow_state: str | None = None
 
+
 @dataclass(frozen=True)
 class TriageResult:
     priority: str

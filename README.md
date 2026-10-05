@@ -1,55 +1,75 @@
-# Blue Cheese evidence and triage demo
+# Blue Cheese local presentation
 
-This is a single-machine, offline Suricata evidence pipeline. It imports a PCAP through a local Suricata executable, or imports an existing Suricata `eve.json` file. It preserves the original input, indexes normalized events, and produces a deterministic triage report with resolvable evidence references. The triage role is rule-based and does not claim to determine malicious intent.
+A small offline prototype: **raw Suricata EVE → shared normalization → DuckDB evidence → investigation → executable Falsifier → cited JSON/Markdown**. All bundled scenarios are **synthetic**, not CTU-13, ATLAS or a real capture. The default **Deterministic demo provider** uses rules, needs no model/API key/network at runtime, and does not establish malicious intent or measure LLM superiority.
 
-## Run the real Suricata demo
+## Native launch (presentation fallback)
 
-From the repository root, with Python 3.11 or later and Suricata on `PATH`:
-
-```bash
-./install-command.sh
-bluecheese --data-dir ./demo-data import-pcap tests/fixtures/bluecheese-demo.pcap --config tests/fixtures/suricata-demo.yaml --rules tests/fixtures/bluecheese-demo.rules
-bluecheese --data-dir ./demo-data alerts
-ALERT_ID=$(bluecheese --data-dir ./demo-data alerts | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
-bluecheese --data-dir ./demo-data triage "$ALERT_ID"
-bluecheese --data-dir ./demo-data evidence "$ALERT_ID"
-bluecheese --data-dir ./demo-data report "$ALERT_ID"
-```
-
-The installer links the repository's `./bluecheese` launcher into `~/.local/bin`, which is already on this machine's PATH. You can also run `./bluecheese` directly without installing the link. Keep the repository at this path while using the link.
-
-The bundled PCAP has one UDP packet with the text `BLUECHEESE-DEMO`. The bundled rule detects that payload. The real Suricata run produces one alert and a related flow. The triage result is `low` priority and `needs_review`; it cites the two records and explains that a signature match does not prove compromise. Import the same PCAP twice to demonstrate idempotence: the import ID and event count stay the same. The local demo configuration avoids relying on a system Suricata config or ruleset.
-
-To demonstrate log-only import without running the sensor, use `bluecheese --data-dir ./eve-data import-eve tests/fixtures/sample_eve.json`.
-
-## Local web interface
+From the repository root, use Python **3.11 or newer**. Linux with Python 3.14.7 was tested; macOS portability is intended, not verified. Installing dependencies needs package-registry access.
 
 ```bash
-bluecheese --data-dir ./demo-data serve
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m streamlit run src/bluecheese/interfaces/demo.py --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false
 ```
 
-Open `http://127.0.0.1:8765/`. The page displays the evidence directory it is reading. Start the server with the same `--data-dir` used for CLI imports; refreshing the page shows new imports without restarting the server. Overview lists each input filename, import ID, status, event count, alert count, and Suricata severity breakdown. Select an import to see its alerts. After importing from the web form, the browser opens that import's alerts automatically. The Alerts page defaults to the latest completed import, supports selecting any import or all imports, and shows the source filename for each alert. Alert details link back to their source import and to the original record. Severity and triage priority apply to individual alerts; the application does not make a maliciousness verdict for an entire capture.
+Open **http://127.0.0.1:8501**. The last command runs the application; Ctrl-C stops it. Launch only one application process per state directory. The four tabs are Evidence, Investigation, Comparison and Live. A rerender retains saved investigations; only investigation buttons run the provider. The Falsifier toggle and budgets apply to the next run. Replay starts only when requested.
 
-For the bundled PCAP, enter `tests/fixtures/bluecheese-demo.pcap` with config `tests/fixtures/suricata-demo.yaml` and rules `tests/fixtures/bluecheese-demo.rules`.
+State defaults to `./bluecheese-data/evidence.duckdb`; replay appends to `./bluecheese-data/replay/eve.jsonl`. Set `BLUECHEESE_STATE=/absolute/writable/path` and optionally `BLUECHEESE_REPLAY=/another/writable/path` before launch. Existing CLI state remains SQLite and is independent.
 
-The server listens on localhost by default. Use `--port` to change its port. Imports run while the form request is open, so a large PCAP can leave the browser waiting; the import result remains in the evidence store after completion.
-
-## Import a real PCAP
-
-Use your normal Suricata configuration and ruleset:
+To create the bundled presentation exports **while the app is stopped**, using the same state:
 
 ```bash
-bluecheese --data-dir ./real-data import-pcap /path/to/capture.pcap --config /path/to/suricata.yaml
+python -m bluecheese.application.export_demo --state bluecheese-data --out demo-exports
 ```
 
-Use `--suricata /path/to/suricata` if it is not on `PATH`. Use `--rules /path/to/rules.rules` to load a specific rules file exclusively. The adapter invokes Suricata offline with `-r` and imports its `eve.json`. If Suricata fails or produces no EVE file, the import is marked incomplete and the command exits with an error. A PCAP with no rule matches can still produce non-alert events; `alerts` will then be empty.
+This writes `suspicious-clean`, `suspicious-poisoned`, `benign-clean`, and `insufficient-clean` JSON/Markdown files. UI download buttons export saved offline/comparison/live reports. Reports state provider, snapshot, budget, warnings, unresolved evidence and validated citations.
 
-Run `python -m pytest -q` to check import, repeat import, raw evidence resolution, quarantine, triage, report, the web handlers, and the PCAP path with the installed Suricata executable. The real integration test skips only when Suricata is absent. This workspace blocks localhost sockets, so web tests exercise the request handlers directly rather than opening a listening port.
+## Docker Compose
 
-## Evidence and measurements
+With Docker Engine and Compose available to your user:
 
-`demo-data/artifacts/` contains content-addressed copies of original inputs and EVE logs. `demo-data/bluecheese.sqlite3` contains artifacts, import runs, normalized events, import errors, and triage results. Each event stores an artifact ID and line number. `evidence <event-id>` retrieves the original line from the preserved file. SHA-256 hashes in the report identify the source artifact.
+```bash
+mkdir -p telemetry
+docker compose up --build -d
+docker compose logs -f bluecheese
+docker compose down
+```
 
-The import result records event and alert counts, invalid records, parsing time, peak Python process RSS in KiB, and total evidence-directory bytes at the end of the command. PCAP imports also record Suricata elapsed time and peak child-process RSS in KiB. Peak RSS is a process high-water mark, not a continuously sampled memory profile. Times are measured on this machine; they are not Security Onion comparison benchmarks.
+`up` builds and starts the non-root app at **http://127.0.0.1:8501**; `logs` follows output; `down` stops it and retains volumes. Native and Docker use `requirements.lock`. Persistent evidence is in `evidence-state`, and the separate writable replay spool is in `replay-spool`. `./telemetry` mounts read-only at `/telemetry`; to follow an external growing EVE file, place it there and choose **External append-only EVE file**, path `/telemetry/eve.jsonl`, in Live. Set `BLUECHEESE_TELEMETRY=/absolute/source/directory` to mount another directory. No privileged mode or host networking is needed.
 
-Malformed EVE lines are kept in `import_errors`; the valid lines remain searchable and the import status becomes `incomplete`. Related-event retrieval is limited to the same import, a 15-minute window, and 20 rows. The current implementation indexes Suricata EVE only. Zeek correlation, DuckDB analytics, model-driven investigation, and persistent job recovery are later milestones.
+Compose configuration was validated. Build/launch is **unverified**: this session's user cannot access `/var/run/docker.sock`. Use native launch as the presentation fallback. The container intentionally excludes the legacy PCAP sensor path; it does not install Suricata.
+
+## Verify
+
+```bash
+python -m ruff check src tests
+python -m pytest -q --cov=bluecheese --cov-report=term-missing
+```
+
+Tests use temporary stores and files, offline fixtures, deterministic polling and no models/API keys. Existing PCAP integration uses local Suricata if installed and otherwise skips. AppTest exercises scenario selection, evidence, findings, saved runs and worker reuse. See [session status](docs/SESSION_STATUS.md) for measured results and [five-minute walkthrough](docs/DEMO.md).
+
+## Implementation choices and limits
+
+The presentation extends `NormalizedAlert` and the Suricata adapter with flow counters/state. Each event stores exact raw UTF-8 text including its newline, parsed JSON, canonical fields, source locator and an ID hashing scope, source identity, byte position and content. Identical lines at different positions remain distinct; retries at the same position do not duplicate acceptance. Malformed records are quarantined.
+
+Typed tools are parameterized, scoped by scenario/variant and a fixed append-only snapshot, and capped at 100 records. The demo investigates the first alert and flows matching its non-null flow ID and endpoints. Established flows with at least 10,000 outbound bytes support `SUSPICIOUS`. The Falsifier independently queries the source IP for matching closed zero-byte flows: those produce `BENIGN_CONFOUNDER` when there is no active-flow support, or `UNCERTAIN` with conflicting support. An alert alone stays `UNCERTAIN`. These are inspectable demonstration rules, not universal security classifications. Enrichment text never drives this policy. The replaceable provider protocol preserves a small extension point; the repository had no existing real model provider.
+
+Default budgets are six tool calls and five seconds. Time limits are cooperative checks around queries/provider execution, not hard process preemption. Citation validation rejects invented, cross-scope and unseen IDs. Snapshot-bound reports remain unchanged while replay adds evidence.
+
+One cached runtime owns DuckDB access and serializes UI, investigation and one ingestion worker through its lock. Replay appends one record every 0.5 seconds, cycling the synthetic fixture. Live refreshes every second. Reads are capped at 256 KiB/poll and lines at 64 KiB. Unterminated lines remain pending; oversized complete lines are quarantined with a bounded raw prefix explicitly marked as truncated. Accepted-event raw input is exact. Evidence/quarantine and committed source identity/offset commit in one transaction. Partial bytes are reread after restart. Append-only sources must preserve their existing bytes: device/inode, size and a committed 4 KiB prefix detect common replacement/truncation; undetected in-place edits or truncate/regrow between polls are outside this milestone. A detected gap stops with a clear message; select a new file/state to reset. Full rotation recovery is deferred.
+
+Other deferred scope: five-role orchestration, vector RAG, real datasets, training, capture, new model/backend integrations, load testing and multi-platform CI. See the existing [planned-product design](Blue_Cheese_Codex_Build_Prompt.md).
+
+## Preserved Suricata CLI
+
+The existing PCAP/EVE import, SQLite evidence, triage and simple web UI remain available. For PCAP import, install Suricata separately on PATH:
+
+```bash
+bluecheese --data-dir demo-data import-pcap tests/fixtures/bluecheese-demo.pcap --config tests/fixtures/suricata-demo.yaml --rules tests/fixtures/bluecheese-demo.rules
+bluecheese --data-dir demo-data alerts
+bluecheese --data-dir eve-data import-eve tests/fixtures/sample_eve.json
+```
+
+Use `bluecheese --help` for `evidence`, `triage`, `report` and the legacy `serve` command (localhost:8765). The bundled PCAP produces a synthetic payload alert and a related flow; its rule match alone does not prove compromise.
