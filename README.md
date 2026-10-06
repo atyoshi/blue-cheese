@@ -6,6 +6,11 @@ A small offline prototype: **raw Suricata EVE → shared normalization → DuckD
 
 From the repository root, use Python **3.11 or newer**. Linux with Python 3.14.7 was tested; macOS portability is intended, not verified. Installing dependencies needs package-registry access.
 
+Use an up-to-date checkout before installing: `git pull --ff-only`. The commands
+below use the lockfiles included in the current repository. If
+`requirements-dev.lock` is missing, check that you are in the repository root
+and that your checkout is current.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -13,6 +18,18 @@ python -m pip install -r requirements-dev.lock
 python -m pip install --no-deps --no-build-isolation -e .
 python -m streamlit run src/bluecheese/interfaces/demo.py --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false
 ```
+
+For an editable development install using dependencies from `pyproject.toml`,
+you can instead run the following in your activated environment:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -v
+```
+
+This installs pytest and Ruff alongside the application. Use the lockfile
+installation above for the packaged presentation environment and its coverage
+checks.
 
 Open **http://127.0.0.1:8501**. The last command runs the application; Ctrl-C stops it. Launch only one application process per state directory. The four tabs are Evidence, Investigation, Comparison and Live. A rerender retains saved investigations; only investigation buttons run the provider. The Falsifier toggle and budgets apply to the next run. Replay starts only when requested.
 
