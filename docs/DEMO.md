@@ -11,3 +11,18 @@ Launch with README's native command; open localhost:8501. Keep the default six c
 Saved presentation exports can be generated with `python -m bluecheese.application.export_demo --state bluecheese-data --out demo-exports` while the app is stopped. Exports from the UI are browser downloads. The evaluator-only manifest is `docs/evaluator/transformation.json`; it is not loaded into the evidence tools/provider.
 
 On an already-used state directory, live counts start above zero and replay continues cycling. Offline import remains idempotent. To rehearse with empty live state, stop the app and set `BLUECHEESE_STATE` to a new writable directory. Do not delete or modify a followed file while expecting continuity. Replay is not packet capture.
+
+## Master-plan additions
+
+After Run Investigation, inspect the triage groups and correlation links. They
+show separate sensor severity/review priority, grouped occurrence IDs, rule basis,
+time window and correlation ambiguity. All logical roles share one bounded
+retrieval budget; no additional models or framework are involved.
+
+Use Saved case runs to load a persisted report without rerunning. Investigate
+successor revision preserves the parent run and creates a new immutable snapshot.
+A report's completed/incomplete/cancelled status is separate from its verdict.
+Start background investigation lets ingestion continue. Cancellation is cooperative;
+the current provider call must return. Restart retains prior reports and marks
+unfinished work interrupted. README includes offline bundle and backup/restore
+commands. Full rotation recovery and automatic case scheduling remain deferred.

@@ -3,13 +3,15 @@
 import atexit
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
-from bluecheese.adapters.duckdb_store import EvidenceStore
 from bluecheese.agents.investigator import investigate
+from bluecheese.agents.orchestrator import Orchestrator
 from bluecheese.application.ingestion import EveFollower
+from bluecheese.application.store_worker import StoreWorker, WorkerStore
 
 SCENARIOS = {
     "suspicious": ("clean", "poisoned"),
@@ -22,7 +24,12 @@ class DemoRuntime:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir)
         self.lock = threading.RLock()
-        self.store = EvidenceStore(self.state_dir / "evidence.duckdb")
+        self.database = StoreWorker(self.state_dir / "evidence.duckdb")
+        self.store = WorkerStore(self.database)
+        self.orchestrator = Orchestrator()
+        self.run_lock = threading.Lock()
+        self.cancel_event = threading.Event()
+        self.active_run_id = None
         self.investigation_runs = 0
         self.closed = False
         self.worker = None
@@ -33,37 +40,113 @@ class DemoRuntime:
         self.last_ingest = None
         self.source_status = "Stopped"
         self.worker_starts = 0
-        self.replay_lines = (
-            files("bluecheese.data")
-            .joinpath("suspicious-clean.jsonl")
-            .read_bytes()
-            .splitlines(keepends=True)
+        try:
+            self.replay_lines = (
+                files("bluecheese.data")
+                .joinpath("suspicious-clean.jsonl")
+                .read_bytes()
+                .splitlines(keepends=True)
+            )
+            with self.lock:
+                for scenario, variants in SCENARIOS.items():
+                    for variant in variants:
+                        self.database.call(
+                            "import_file",
+                            files("bluecheese.data").joinpath(
+                                f"{scenario}-{variant}.jsonl"
+                            ),
+                            scenario,
+                            variant,
+                        )
+        except Exception:
+            self.database.close()
+            self.closed = True
+            raise
+        self.executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="bluecheese-investigation"
         )
-        with self.lock:
-            for scenario, variants in SCENARIOS.items():
-                for variant in variants:
-                    self.store.import_file(
-                        files("bluecheese.data").joinpath(
-                            f"{scenario}-{variant}.jsonl"
-                        ),
-                        scenario,
-                        variant,
-                    )
+        self.pending_run = None
         atexit.register(self.close)
 
     def command(self, method, *args, **kwargs):
         with self.lock:
             if self.closed:
                 raise RuntimeError("Runtime is closed")
-            return getattr(self.store, method)(*args, **kwargs)
+        return self.database.call(method, *args, **kwargs)
 
-    def run(self, scenario, variant, **settings):
+    def run(
+        self,
+        scenario,
+        variant,
+        *,
+        question="What does the observed alert and related flow evidence support?",
+        parent_run_id=None,
+        **settings,
+    ):
+        if not self.run_lock.acquire(blocking=False):
+            raise RuntimeError("An investigation is already active; cancel it or wait")
+        run = None
+        try:
+            with self.lock:
+                if self.closed:
+                    raise RuntimeError("Runtime is closed")
+                self.cancel_event.clear()
+                run = self.database.call(
+                    "create_run", scenario, variant, question, parent_run_id
+                )
+                self.active_run_id = run["run_id"]
+                self.investigation_runs += 1
+            scoped = WorkerStore(
+                self.database, run["snapshot_id"], run["snapshot"], run["run_id"]
+            )
+            report = investigate(
+                scoped, scenario, variant, cancel_event=self.cancel_event, **settings
+            )
+            self.orchestrator.complete(
+                self.database,
+                run,
+                report,
+                synthetic=scenario in SCENARIOS
+                or (scenario == "live" and variant == "replay"),
+            )
+            return report
+        except Exception as error:
+            if run:
+                self.database.call(
+                    "finish_run", run["run_id"], "FAILED", error=str(error)[:4096]
+                )
+            raise
+        finally:
+            with self.lock:
+                self.active_run_id = None
+            self.run_lock.release()
+
+    def begin_run(self, scenario, variant, **settings):
         with self.lock:
-            self.investigation_runs += 1
-            return investigate(self.store, scenario, variant, **settings)
+            if self.closed:
+                raise RuntimeError("Runtime is closed")
+            if self.active_run_id or (self.pending_run and not self.pending_run.done()):
+                raise RuntimeError(
+                    "An investigation is already active; cancel it or wait"
+                )
+            self.pending_run = self.executor.submit(
+                self.run, scenario, variant, **settings
+            )
+            return self.pending_run
+
+    def cancel(self):
+        with self.lock:
+            if self.active_run_id is None:
+                return False
+            self.cancel_event.set()
+            return True
 
     def start(self, path=None, replay=True, interval=0.5):
+        if interval <= 0:
+            raise ValueError("Poll interval must be positive")
         with self.lock:
+            if self.closed:
+                raise RuntimeError("Runtime is closed")
             if self.worker and self.worker.is_alive():
                 return False
             self.replay = replay
@@ -74,8 +157,10 @@ class DemoRuntime:
                 spool.mkdir(parents=True, exist_ok=True)
                 path = spool / "eve.jsonl"
                 path.touch(exist_ok=True)
-            self.follower = EveFollower(
-                self.store, path, "live", "replay" if replay else "external"
+            self.follower = self.database.apply(
+                lambda store: EveFollower(
+                    store, path, "live", "replay" if replay else "external"
+                )
             )
             self.stop_event.clear()
             self.source_status = (
@@ -111,13 +196,15 @@ class DemoRuntime:
 
     def poll_once(self):
         with self.lock:
+            if self.closed:
+                raise RuntimeError("Runtime is closed")
             if self.replay:
                 with self.follower.path.open("ab") as stream:
                     stream.write(
                         self.replay_lines[self.replay_index % len(self.replay_lines)]
                     )
                 self.replay_index += 1
-            result = self.follower.poll_once()
+            result = self.database.apply(lambda store: self.follower.poll_once())
             if result["bytes_read"]:
                 self.last_ingest = datetime.now(UTC).isoformat()
             return result
@@ -135,9 +222,10 @@ class DemoRuntime:
                 "source": str(self.follower.path) if self.follower else None,
                 "last_ingest": self.last_ingest,
                 "committed_offset": self.follower.committed if self.follower else 0,
-                "counts": self.store.counts("live", variant),
+                "counts": self.database.call("counts", "live", variant),
                 "worker_starts": self.worker_starts,
                 "investigation_runs": self.investigation_runs,
+                "active_run_id": self.active_run_id,
             }
 
     def stop(self):
@@ -152,8 +240,10 @@ class DemoRuntime:
                 self.source_status = "Stopped; committed cursor retained for resume"
 
     def close(self):
+        self.cancel()
         self.stop()
-        with self.lock:
+        with self.run_lock, self.lock:
             if not self.closed:
-                self.store.close()
                 self.closed = True
+                self.database.close()
+        self.executor.shutdown(wait=True)

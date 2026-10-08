@@ -15,8 +15,10 @@ def get_runtime(state_dir):
     return DemoRuntime(state_dir)
 
 
-def inspect_event(runtime, scenario, variant, snapshot, event_id):
-    event = runtime.command("get_event", scenario, variant, snapshot, event_id)
+def inspect_event(runtime, scenario, variant, snapshot, event_id, snapshot_id=None):
+    event = runtime.command(
+        "get_event", scenario, variant, snapshot, event_id, snapshot_id=snapshot_id
+    )
     if event:
         st.caption(
             f"Evidence ID: {event['id']} | Source: {event['source']} | Byte offset: {event['position']}"
@@ -36,10 +38,20 @@ def inspect_event(runtime, scenario, variant, snapshot, event_id):
 
 def show_report(runtime, report, key):
     st.subheader(report["verdict"])
+    if "run_id" in report:
+        st.caption(
+            f"Run {report['run_id']} • revision {report['case_revision']} • {report['run_status']}"
+        )
     st.write(report["hypothesis"])
     st.write("Observable disconfirmation test:", report["disconfirmation_test"])
     st.write("Supporting IDs", report["supporting_ids"])
     st.write("Contradicting IDs", report["contradicting_ids"])
+    if report.get("triage"):
+        st.write("Triage priorities and candidate groups")
+        st.json(report["triage"])
+    if report.get("correlation"):
+        st.write("Correlation links and rule basis")
+        st.json(report["correlation"])
     st.write("Falsifier check")
     st.json(report["falsifier"])
     st.write("Tool activity / consumed budget")
@@ -52,7 +64,12 @@ def show_report(runtime, report, key):
     if citations:
         chosen = st.selectbox("Inspect citation", citations, key=key + "-citation")
         inspect_event(
-            runtime, report["scenario"], report["variant"], report["snapshot"], chosen
+            runtime,
+            report["scenario"],
+            report["variant"],
+            report["snapshot"],
+            chosen,
+            report.get("snapshot_id"),
         )
     left, right = st.columns(2)
     left.download_button(
@@ -103,6 +120,35 @@ def live_panel(runtime, settings):
         show_report(runtime, st.session_state["live_report"], "live-report")
 
 
+@st.fragment(run_every=1.0)
+def background_controls(runtime, scenario, variant, settings):
+    if st.button("Start background investigation"):
+        try:
+            st.session_state["background_run"] = runtime.begin_run(
+                scenario, variant, **settings
+            )
+        except (RuntimeError, ValueError) as error:
+            st.error(str(error))
+    if st.button("Cancel active investigation"):
+        if runtime.cancel():
+            st.info(
+                "Cancellation requested; the current provider call must return first."
+            )
+        else:
+            st.caption("No active investigation.")
+    pending = st.session_state.get("background_run")
+    if pending is not None:
+        if pending.done():
+            del st.session_state["background_run"]
+            try:
+                st.session_state["report"] = pending.result()
+                st.rerun()
+            except (RuntimeError, ValueError) as error:
+                st.error(str(error))
+        else:
+            st.info("Investigation in progress. Ingestion remains active.")
+
+
 def main():
     st.set_page_config(page_title="Blue Cheese", layout="wide")
     st.title("Blue Cheese — evidence to cited investigation")
@@ -122,7 +168,12 @@ def main():
     max_seconds = st.sidebar.number_input(
         "Elapsed-time limit (seconds)", min_value=0.0, value=5.0
     )
+    question = st.sidebar.text_input(
+        "Case question",
+        value="What does the observed alert and related flow evidence support?",
+    )
     settings = {
+        "question": question,
         "falsification": falsification,
         "max_calls": max_calls,
         "max_seconds": max_seconds,
@@ -149,6 +200,30 @@ def main():
                 f"Saved run: {report['scenario']} / {report['variant']} / snapshot {report['snapshot']}. Settings above apply to the next run."
             )
             show_report(runtime, report, "investigation")
+        background_controls(runtime, scenario, variant, settings)
+        with st.expander("Saved case runs"):
+            history = runtime.command("list_runs", scenario, variant)
+            if history:
+                st.table(history)
+                selected_run = st.selectbox(
+                    "Saved run ID", [r["run_id"] for r in history]
+                )
+                if st.button("Load saved report"):
+                    saved_run = runtime.command(
+                        "get_run", scenario, variant, selected_run
+                    )
+                    if saved_run["report"]:
+                        st.session_state["report"] = saved_run["report"]
+                        st.rerun()
+                    else:
+                        st.warning(
+                            f"{saved_run['status']}: {saved_run['error'] or 'No completed report'}"
+                        )
+                if st.button("Investigate successor revision"):
+                    st.session_state["report"] = runtime.run(
+                        scenario, variant, parent_run_id=selected_run, **settings
+                    )
+                    st.rerun()
     with comparison:
         st.write(
             "Matched settings on the synthetic suspicious scenario. Differences below are computed from saved results."

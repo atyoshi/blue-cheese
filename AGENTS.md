@@ -6,8 +6,12 @@ Presentation components:
 - `domain/models.py` / `adapters/suricata.py`: shared canonical alert/flow normalization.
 - `adapters/duckdb_store.py`: immutable raw text, parsed/normalized evidence, scoped bounded parameterized tools, quarantine/cursors.
 - `agents/investigator.py`: replaceable provider protocol, deterministic offline Investigator, executable Falsifier, retrieval ledger, budgets and citation validation.
+- `agents/triage.py` / `agents/correlation.py` / `agents/orchestrator.py`: bounded deterministic logical roles; legacy triage API retained; shared retrieval/budget.
 - `agents/reporting.py`: cited JSON/Markdown.
-- `application/demo_runtime.py`: cached single-process runtime; one polling worker; serialized database access through its RLock.
+- `application/store_worker.py`: one thread owns the connection and all runtime transactions.
+- `adapters/demo_schema.py`: additive checksummed case/snapshot/run/tool migration.
+- `application/report_bundle.py` / `application/backup.py`: offline integrity verification and stopped-runtime backup/restore.
+- `application/demo_runtime.py`: cached single-process runtime; one polling worker; lifecycle/follower state under its RLock; bounded database command queue with one owning worker; provider calls outside database locks.
 - `application/ingestion.py`: testable bounded `poll_once()`, append-only source detection and atomic event/quarantine/cursor commit.
 - `application/export_demo.py`: offline export command, run while the app is stopped.
 - `data/*.jsonl`: synthetic fixtures. Evaluator manifest stays in docs/evaluator and never enters provider inputs.
@@ -16,4 +20,4 @@ Invariants: accepted raw text is exact and immutable. Event IDs include source i
 
 Tests beside implementation behavior live in tests/test_demo_store.py, test_investigator.py, test_ingestion.py and test_demo_ui.py. Retain legacy tests. Use temporary paths/no network/no real models; deterministic polling replaces sleep-based tests. Package using the same requirements.lock for native and Docker. Do not add an agent framework, restructure the repository or download datasets/models.
 
-Implemented tasks 1–6; container execution and macOS remain unverified. See session status for measured checks and deferred scope.
+Implemented original tasks 1–6 plus the master-plan slices recorded in ROADMAP.md; the full roadmap is incomplete. Container execution and macOS remain unverified. See session status for measured checks and deferred scope.
