@@ -1,5 +1,7 @@
 import json
+from io import BytesIO
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 
@@ -7,6 +9,109 @@ from bluecheese.adapters.model_provider import ModelProfile, StructuredModelProv
 from bluecheese.application.demo_runtime import DemoRuntime
 
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
+
+
+@pytest.mark.parametrize(
+    "remote,insecure", [(False, False), (False, True), (True, False)]
+)
+def test_remote_http_requires_both_opt_ins(remote, insecure):
+    with pytest.raises(ValueError):
+        ModelProfile(
+            "http://grain.utep.edu:11434/v1/chat/completions",
+            "model",
+            allow_remote=remote,
+            allow_insecure_http=insecure,
+        )
+
+
+def test_remote_http_explicit_opt_in_and_environment(monkeypatch):
+    from bluecheese.adapters.model_provider import configured_provider
+
+    endpoint = "http://grain.utep.edu:11434/v1/chat/completions"
+    profile = ModelProfile(
+        endpoint, "model", allow_remote=True, allow_insecure_http=True
+    )
+    assert profile.endpoint == endpoint
+    assert ModelProfile(
+        "https://example.com/v1/chat/completions", "model", allow_remote=True
+    )
+    monkeypatch.setenv("BLUECHEESE_MODEL_ENDPOINT", endpoint)
+    monkeypatch.setenv("BLUECHEESE_MODEL", "model")
+    monkeypatch.setenv("BLUECHEESE_ALLOW_REMOTE_MODEL", "true")
+    monkeypatch.delenv("BLUECHEESE_ALLOW_INSECURE_HTTP", raising=False)
+    with pytest.raises(ValueError, match="allow_insecure_http"):
+        configured_provider()
+    monkeypatch.setenv("BLUECHEESE_ALLOW_INSECURE_HTTP", "true")
+    assert configured_provider().profile == profile
+
+
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        (TimeoutError(), "timed out after 20 seconds"),
+        (URLError(TimeoutError()), "timed out after 20 seconds"),
+        (URLError("private error details"), "connection failed"),
+    ],
+)
+def test_transport_distinguishes_timeouts_without_leaking_details(
+    monkeypatch, failure, expected
+):
+    from bluecheese.adapters.model_provider import request_completion
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            raise failure
+
+    monkeypatch.setattr(
+        "bluecheese.adapters.model_provider.build_opener", lambda *a: Opener()
+    )
+    with pytest.raises(RuntimeError, match=expected) as caught:
+        request_completion(
+            ModelProfile("http://localhost/v1/chat/completions", "test"), {}, 20
+        )
+    assert "private error details" not in str(caught.value)
+
+
+@pytest.mark.parametrize("thinking", [None, False, True])
+def test_thinking_extension_is_explicit_and_does_not_mutate_payload(
+    monkeypatch, thinking
+):
+    from bluecheese.adapters.model_provider import request_completion
+
+    sent = []
+
+    class Opener:
+        def open(self, request, **kwargs):
+            sent.append(json.loads(request.data))
+            return BytesIO(b"{}")
+
+    monkeypatch.setattr(
+        "bluecheese.adapters.model_provider.build_opener", lambda *a: Opener()
+    )
+    payload = {"messages": []}
+    request_completion(
+        ModelProfile(
+            "http://localhost/v1/chat/completions", "test", enable_thinking=thinking
+        ),
+        payload,
+        20,
+    )
+    assert payload == {"messages": []}
+    if thinking is None:
+        assert "chat_template_kwargs" not in sent[0]
+    else:
+        assert sent[0]["chat_template_kwargs"] == {"enable_thinking": thinking}
+
+
+def test_slow_inference_timeout_stays_bounded():
+    assert (
+        ModelProfile(
+            "http://localhost/v1/chat/completions", "test", timeout=300
+        ).timeout
+        == 300
+    )
+    with pytest.raises(ValueError, match="timeout"):
+        ModelProfile("http://localhost/v1/chat/completions", "test", timeout=601)
 
 
 def transport(profile, payload, timeout):

@@ -9,7 +9,11 @@ from pathlib import Path
 from jsonschema import ValidationError, validate
 
 from bluecheese.adapters.agent_provider import AgentModelProvider, completion_endpoint
-from bluecheese.adapters.model_provider import ModelProfile, request_completion
+from bluecheese.adapters.model_provider import (
+    ModelProfile,
+    investigation_seconds,
+    request_completion,
+)
 from bluecheese.agents.triage import TriageAgent
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.ingestion import EveFollower, SourceGap
@@ -17,13 +21,40 @@ from bluecheese.application.source_path import readable_eve_path
 from bluecheese.application.telemetry_visuals import summarize
 
 SCOPE = ("live", "external")
+CHAT_ACTIONS = (
+    "answer",
+    "investigate",
+    "alerts",
+    "triage",
+    "network",
+    "report",
+    "history",
+    "status",
+    "help",
+    "import",
+    "follow",
+    "stop",
+    "test",
+)
+CHAT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "action": {"type": "string", "enum": list(CHAT_ACTIONS)},
+        "argument": {"type": "string", "maxLength": 4096},
+        "reply": {"type": "string", "maxLength": 8192},
+    },
+    "required": ["action", "argument", "reply"],
+}
 FIELDS = {
     "endpoint": {"type": "string"},
     "model": {"type": "string"},
     "api_key": {"type": "string"},
     "api_key_env": {"type": "string"},
     "allow_remote": {"type": "boolean"},
-    "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 120},
+    "allow_insecure_http": {"type": "boolean"},
+    "enable_thinking": {"type": "boolean"},
+    "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 600},
     "max_output_tokens": {"type": "integer", "minimum": 128, "maximum": 8192},
     "max_attempts": {"type": "integer", "minimum": 2, "maximum": 12},
     "json_mode": {"type": "boolean"},
@@ -99,16 +130,19 @@ HELP = """Commands (also accepts: 'triage alerts', 'show network information',
   /test               Test model tools/schema using synthetic requests
   /status             Show source and investigation state
   /help /quit         Help or exit; Ctrl-C during a run requests cancellation
-Unknown chat can be sent to the configured model after approval. It sees only
-your message, and can propose an action for separate approval. No shell tools.
+With a model configured, ordinary chat lets it select a task. Questions about
+what evidence means use a cited investigation; listing alerts just reads records.
+Model requests and proposed tasks require approval. No shell tools.
 """
 
 
-def route(message):
+def route(message, model_chat=False):
     text = message.strip()
     if text.startswith("/"):
         name, _, argument = text[1:].partition(" ")
         return name.lower(), argument.strip()
+    if model_chat:
+        return "chat", text
     lower = text.lower()
     if any(word in lower for word in ("investigat", "analyz", "analyse")):
         return "investigate", text
@@ -130,6 +164,7 @@ def route(message):
 class TerminalSession:
     def __init__(self, runtime, read=input, write=print):
         self.runtime, self.read, self.write = runtime, read, write
+        self.chat_history = []
 
     def say(self, value):
         self.write(safe_text(value))
@@ -154,12 +189,15 @@ class TerminalSession:
     def investigate(self, question):
         provider = self.runtime.provider
         label = provider.label if provider else "deterministic offline rules"
+        run_seconds = investigation_seconds(provider)
         description = (
             f"Investigate live/external evidence using {label}; freeze a "
             "snapshot and save a cited report. Approves bounded read-only "
             "agent tools and model calls for this run. "
             + (
-                "Normalized evidence is sent to the configured endpoint. "
+                f"Normalized evidence is sent to the configured endpoint. "
+                f"Up to {getattr(provider, 'max_attempts', 1)} model calls, {provider.profile.timeout:g}s "
+                f"per call; cooperative run budget {run_seconds:g}s. "
                 if provider
                 else ""
             )
@@ -169,7 +207,9 @@ class TerminalSession:
         if not self.approve(description):
             return
         future = self.runtime.begin_run(
-            *SCOPE, question=question, max_seconds=60 if provider else 5
+            *SCOPE,
+            question=question,
+            max_seconds=run_seconds,
         )
         after = 0
         while True:
@@ -198,34 +238,96 @@ class TerminalSession:
         ):
             return
         self.say("Chat assistant · awaiting model response")
+        payload = {
+            "model": provider.profile.model,
+            "store": False,
+            "max_completion_tokens": provider.profile.max_output_tokens,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Blue Cheese's terminal task planner. Return JSON with "
+                        "action, argument, reply. Choose one action: "
+                        + ", ".join(CHAT_ACTIONS)
+                        + ". "
+                        "answer: general conversation/questions without evidence. "
+                        "investigate: explain significance, assess risk or give an opinion about "
+                        "alerts/traffic/evidence, including 'these alerts'; put the user's "
+                        "complete question in argument. This runs bounded evidence tools "
+                        "and model analysis and saves a cited report. "
+                        "alerts: only when asked to list/show alert records. triage: "
+                        "explicit rule prioritization. network: descriptive network statistics "
+                        "and summaries of observed connections/endpoints/protocols. Choose "
+                        "network for a connection summary without a request to assess risk "
+                        "or suspiciousness; investigation is for evidence interpretation. "
+                        "report: read a saved report (argument is run ID or blank). "
+                        "history: saved runs. status: runtime status. Questions about "
+                        "where alerts come from, the connected sensor/source, or whether "
+                        "ingestion is running must choose status even when they mention "
+                        "alerts. Status shows the current source, not historical import "
+                        "provenance or the database path. help: local help. "
+                        "import/follow: only if user explicitly requests EVE file ingestion "
+                        "and supplies a path; argument is a shell-quoted single path. "
+                        "stop: stop following. test: synthetic model capability probes. "
+                        "You have no evidence here. Never invent observations, findings "
+                        "or successful execution. Prior proposals do not establish that a "
+                        "task ran. reply briefly explains the proposed task, or answers "
+                        "general questions. All tasks are validated and separately approved "
+                        "by the operator; do not ask them to type slash commands. "
+                        "Do not choose import/follow/stop/test unless explicitly requested."
+                    ),
+                },
+                *self.chat_history,
+                {"role": "user", "content": message},
+            ],
+            "response_format": {"type": "json_object"}
+            if provider.json_mode
+            else {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "terminal_task",
+                    "strict": True,
+                    "schema": CHAT_SCHEMA,
+                },
+            },
+        }
         response = request_completion(
             provider.profile,
-            {
-                "model": provider.profile.model,
-                "store": False,
-                "max_completion_tokens": provider.profile.max_output_tokens,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are Blue Cheese's terminal assistant. You have no evidence "
-                        "or tool access in this chat. Answer general network questions, "
-                        "or suggest one of /triage, /network, /alerts, /investigate QUESTION, "
-                        "/report, /history. Never claim to have executed tasks or observed "
-                        "evidence. The user must enter and approve suggested commands.",
-                    },
-                    {"role": "user", "content": message},
-                ],
-            },
+            payload,
             provider.profile.timeout,
         )
         try:
             choice = response["choices"][0]
             content = choice["message"]["content"]
-            if choice["finish_reason"] != "stop" or not isinstance(content, str):
+            if (
+                choice["finish_reason"] != "stop"
+                or choice["message"].get("refusal")
+                or not isinstance(content, str)
+            ):
                 raise ValueError("Chat returned incomplete output")
+            plan = json.loads(content)
+            validate(plan, CHAT_SCHEMA)
+        except (ValidationError, json.JSONDecodeError):
+            raise ValueError(
+                "Model returned an invalid task proposal; no task executed"
+            ) from None
         except (KeyError, IndexError, TypeError):
             raise ValueError("Invalid chat response envelope") from None
-        self.say(content)
+        self.chat_history = (
+            self.chat_history
+            + [
+                {"role": "user", "content": message[:4096]},
+                {"role": "assistant", "content": json.dumps(plan)},
+            ]
+        )[-6:]
+        self.say(plan["reply"])
+        if plan["action"] != "answer":
+            # Only typed, allowlisted tasks reach the same approval-gated handlers.
+            # Keep the original question even if the planner drops useful context.
+            self.execute(
+                plan["action"],
+                message if plan["action"] == "investigate" else plan["argument"],
+            )
 
     def execute(self, action, argument):
         if action == "help":
@@ -234,9 +336,11 @@ class TerminalSession:
             path = argument or self.read("Config JSON path > ").strip()
             provider = load_provider(path)
             self.runtime.configure_provider(provider)
+            self.chat_history.clear()
             self.say("Provider config applied (no request sent).")
         elif action == "rules":
             self.runtime.configure_provider(None)
+            self.chat_history.clear()
             self.say("Offline rules selected.")
         elif action == "status":
             self.show(self.runtime.status())
@@ -335,7 +439,9 @@ class TerminalSession:
                 message = self.read("\nYou > ").strip()
                 if not message:
                     continue
-                action, argument = route(message)
+                action, argument = route(
+                    message, model_chat=self.runtime.provider is not None
+                )
                 if action in ("quit", "exit"):
                     return
                 self.execute(action, argument)
@@ -368,6 +474,7 @@ def launch(directory, args):
         model=args.model,
         api_key_env=args.api_key_env,
         allow_remote=args.allow_remote,
+        allow_insecure_http=args.allow_insecure_http,
         json_mode=args.json_mode,
         falsifier_model=args.falsifier_model,
         timeout=args.timeout,

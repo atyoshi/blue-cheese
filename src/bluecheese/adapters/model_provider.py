@@ -58,8 +58,12 @@ class ModelProfile:
     max_output_tokens: int = 2048
     allow_remote: bool = False
     api_key: str = field(default="", repr=False, compare=False)
+    allow_insecure_http: bool = False
+    enable_thinking: bool | None = None
 
     def __post_init__(self):
+        if self.enable_thinking is not None and type(self.enable_thinking) is not bool:
+            raise ValueError("enable_thinking must be a boolean when configured")
         url = urlsplit(self.endpoint)
         local = url.hostname in ("localhost", "127.0.0.1", "::1")
         if (
@@ -73,12 +77,18 @@ class ModelProfile:
             raise ValueError(
                 "Provider endpoint must be an HTTP(S) URL without credentials/query"
             )
-        if not local and (not self.allow_remote or url.scheme != "https"):
-            raise ValueError("Remote providers require HTTPS and explicit allow_remote")
+        if not local and not self.allow_remote:
+            raise ValueError(
+                "Remote providers require explicit allow_remote; HTTPS is the default"
+            )
+        if not local and url.scheme == "http" and not self.allow_insecure_http:
+            raise ValueError(
+                "Remote providers require HTTPS unless allow_insecure_http is explicitly enabled alongside allow_remote"
+            )
         if not self.model.strip() or len(self.model) > 128:
             raise ValueError("Provider model must be explicitly configured")
-        if not math.isfinite(self.timeout) or not 0 < self.timeout <= 120:
-            raise ValueError("Provider timeout must be in (0,120] seconds")
+        if not math.isfinite(self.timeout) or not 0 < self.timeout <= 600:
+            raise ValueError("Provider timeout must be in (0,600] seconds")
         if not 128 <= self.max_output_tokens <= 8192:
             raise ValueError("Provider output token limit must be 128..8192")
 
@@ -88,7 +98,19 @@ class NoRedirect(HTTPRedirectHandler):
         raise RuntimeError("Provider redirects are disabled")
 
 
+def investigation_seconds(provider):
+    """Cooperative run allowance sufficient for the configured bounded call loop."""
+    if provider is None:
+        return 5.0
+    return max(60.0, provider.profile.timeout * getattr(provider, "max_attempts", 1))
+
+
 def request_completion(profile, payload, timeout):
+    if profile.enable_thinking is not None:
+        payload = {
+            **payload,
+            "chat_template_kwargs": {"enable_thinking": profile.enable_thinking},
+        }
     headers = {"Content-Type": "application/json"}
     secret = profile.api_key or os.environ.get(profile.api_key_env)
     if secret:
@@ -105,8 +127,21 @@ def request_completion(profile, payload, timeout):
         raise RuntimeError(
             f"Model provider returned HTTP {error.code}; response body withheld"
         ) from None
-    except (URLError, TimeoutError, OSError):
-        raise RuntimeError("Model provider unavailable or timed out") from None
+    except TimeoutError:
+        raise RuntimeError(
+            f"Model provider timed out after {timeout:g} seconds; increase timeout for slow inference"
+        ) from None
+    except URLError as error:
+        message = (
+            f"Model provider timed out after {timeout:g} seconds; increase timeout for slow inference"
+            if isinstance(error.reason, TimeoutError)
+            else "Model provider connection failed; check endpoint and connectivity"
+        )
+        raise RuntimeError(message) from None
+    except OSError:
+        raise RuntimeError(
+            "Model provider connection failed; check endpoint and connectivity"
+        ) from None
     if len(body) > 131072:
         raise ValueError("Provider response exceeds 128 KiB")
     return json.loads(body)
@@ -222,6 +257,10 @@ def configured_provider():
         endpoint=endpoint,
         model=os.environ.get("BLUECHEESE_MODEL", ""),
         allow_remote=os.environ.get("BLUECHEESE_ALLOW_REMOTE_MODEL") == "true",
+        allow_insecure_http=os.environ.get("BLUECHEESE_ALLOW_INSECURE_HTTP") == "true",
+        enable_thinking={"true": True, "false": False}.get(
+            os.environ.get("BLUECHEESE_ENABLE_THINKING")
+        ),
     )
     if os.environ.get("BLUECHEESE_MODEL_MODE", "agents") == "summary":
         return StructuredModelProvider(profile)

@@ -16,8 +16,9 @@ After installation, choose your workspace:
 The operational console runs locally without a model key. It uses a rule-based
 investigator by default. This is a single-analyst development release: individual
 authentication, roles and shared SOC deployment remain unfinished. Native macOS
-and local Suricata integration have been tested; Docker execution and live model
-compatibility remain unverified. See [current verification](docs/TESTING.md) and
+and local Suricata integration have been tested; Docker execution remains unverified.
+One live llama.cpp model passed the [CLI compatibility checks](docs/CLI_MODEL_VALIDATION.md).
+See [current verification](docs/TESTING.md) and
 [release gates](docs/RELEASE_GATES.md).
 
 Quick links: [install](#install-and-open-the-console) ·
@@ -163,19 +164,55 @@ otherwise the selected file/flags define the provider, and flags override file
 fields. `/help` and `--cli --help` list tasks and startup options.
 
 Config fields are `endpoint`, `model`, `falsifier_model`, `api_key_env`, optional
-`api_key`, `allow_remote`, `timeout`, `max_output_tokens`, `max_attempts`, and
+`api_key`, `allow_remote`, `allow_insecure_http`, optional `enable_thinking`,
+`timeout`, `max_output_tokens`, `max_attempts`, and
 `json_mode`. Use `api_key_env` to reference an exported secret; `config.json` is
 Git-ignored. Base URLs and full Chat Completions URLs are accepted. Remote
-endpoints require HTTPS and `allow_remote: true` (or `--allow-remote`). Model
+endpoints require `allow_remote: true` (or `--allow-remote`) and default to HTTPS.
+For a server available only over HTTP, also set `allow_insecure_http: true`
+(or `--allow-insecure-http`). Evidence and any API key travel unencrypted.
+For example, retain your server's model identifier and set these fields in your config:
+
+```json
+{
+  "endpoint": "http://grain.utep.edu:11434/",
+  "model": "your-served-model-id",
+  "allow_remote": true,
+  "allow_insecure_http": true
+}
+```
+
+This base URL resolves to `/v1/chat/completions`; the server must implement the
+OpenAI-compatible Chat Completions API. Reload with `/config ~/bc.json` after
+restarting an already-running terminal to pick up the updated code. Model
 investigations send normalized evidence to that endpoint. Use `json_mode: true`
 for servers without strict JSON Schema; local report/citation validation still
-applies. Live endpoint compatibility has not been verified.
+applies. See [measured live compatibility](docs/CLI_MODEL_VALIDATION.md) for the
+tested server/model; other deployments remain unverified.
 
-Common task requests route locally. Other chat asks approval before sending only
-your message to the configured model. That assistant can explain concepts or
-suggest a command; enter the command to approve its execution. It has no evidence
-access in general chat and does not execute model-generated commands. Chat is
-single-turn; investigation questions enter the bounded evidence workflow.
+For slow model servers, increase `timeout` (maximum 600 seconds per call).
+Operational model investigations use a cooperative run budget of at least 60 seconds,
+or `timeout × max_attempts`, whichever is larger. The approval prompt shows
+these limits. A timeout
+does not establish that the server rejected the request format; `/test` checks
+tool calling and structured report output using synthetic data.
+On llama.cpp servers with a compatible chat template, optional config field
+`enable_thinking: false` sends `chat_template_kwargs.enable_thinking=false` to
+reduce generation latency. Omit it to preserve the server default; other servers
+may not support this extension. Environment configuration can use
+`BLUECHEESE_ENABLE_THINKING=false`. Citation and report validation still apply.
+
+With a provider configured, ordinary chat asks approval before sending your
+message and up to three previous chat exchanges to the model's task planner.
+The model can answer general questions or select an allowlisted task for separate
+approval; you do not need to retype a slash command. For example, “what do you
+think about these alerts?” should propose an investigation, while “list alerts”
+should propose an alert listing. The original investigation question enters the
+bounded evidence workflow, which retrieves evidence, validates citations and
+saves a report. The planner itself receives no telemetry or task results, so use
+an investigation for evidence questions. Invalid task proposals execute nothing.
+Slash commands bypass the planner and retain their existing approvals. Without
+a provider, common task requests still route locally to offline rules.
 
 ## First walkthrough: connect, inspect, investigate
 
@@ -510,8 +547,8 @@ export BLUECHEESE_MODEL=your-served-model-id
 Set `BLUECHEESE_MODEL_API_KEY` through your environment/secret manager if needed.
 The sidebar identifies the selected provider. Doctor validates configuration but
 never calls the endpoint. Test a manual investigation and inspect its status,
-errors and citations to check your actual server/model; live compatibility remains
-unverified. Environment changes require restarting. To return to rules on launch,
+errors and citations to check your actual server/model; the recorded CLI checks
+cover one server/model. Environment changes require restarting. To return to rules on launch,
 unset the provider variables before restarting:
 
 ```bash
@@ -519,7 +556,8 @@ unset BLUECHEESE_MODEL_ENDPOINT BLUECHEESE_MODEL BLUECHEESE_MODEL_API_KEY BLUECH
 ./bluecheese
 ```
 
-Remote endpoints require HTTPS and `BLUECHEESE_ALLOW_REMOTE_MODEL=true`. Enabling
+Remote endpoints require `BLUECHEESE_ALLOW_REMOTE_MODEL=true` and default to HTTPS.
+HTTP additionally requires `BLUECHEESE_ALLOW_INSECURE_HTTP=true`. Enabling
 them sends normalized observations, including IPs and detection signatures, to
 the configured endpoint; exact raw logs are omitted. The Investigator can request
 bounded evidence queries; the Falsifier then challenges its candidate assessment,

@@ -8,7 +8,10 @@ from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
-from bluecheese.adapters.model_provider import configured_provider
+from bluecheese.adapters.model_provider import (
+    configured_provider,
+    investigation_seconds,
+)
 from bluecheese.agents.investigator import investigate
 from bluecheese.agents.orchestrator import Orchestrator
 from bluecheese.application.ingestion import EveFollower
@@ -420,7 +423,7 @@ class DemoRuntime:
                 "external",
                 seed_event_id=event_id,
                 max_calls=8,
-                max_seconds=60.0 if self.provider else 5.0,
+                max_seconds=investigation_seconds(self.provider),
             )
             self.database.call(
                 "finish_work", event_id, report["run_status"], report["run_id"]

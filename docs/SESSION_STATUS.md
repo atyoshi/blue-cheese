@@ -1,13 +1,60 @@
 # Current verification — 2026-10-12
 
+Live CLI investigation follow-up: verified the user's llama.cpp endpoint/model
+using synthetic probes and an offline backup/restore copy of operational evidence.
+The 20-second call timeout was insufficient; a report took 121.79 seconds even
+with thinking disabled. At a tested 300-second call timeout, the Investigator
+completed, then the LLM Falsifier exhausted the remaining shared retrieval budget.
+The provider now requests a structured final assessment when no tool calls remain,
+without increasing the retrieval cap. A subsequent live run completed both model
+roles and citation validation in 334.5 seconds (5 model requests, 6 tool calls),
+with verdict UNCERTAIN. Test runs are isolated from operational history.
+
+Operational run budgets now scale with bounded model-call settings in CLI, GUI
+and scheduled runtime paths. Call timeout is configurable up to 600 seconds;
+optional `enable_thinking` sends the llama.cpp chat-template extension. Timeout
+and connection failures are distinguished, and cancellation survives a transport
+error. The user's JSON config now uses timeout 300 and thinking disabled, with
+an owner-only original backup. Concise report instructions preserve missing
+evidence and bounded coverage. Source/ingestion routing was clarified after a
+live misroute; remaining live planner checks selected the expected task types.
+Measured regressions: **118 passed in 10.26 seconds** outside the sandbox; Ruff
+and diff whitespace passed. Live GUI behavior and detection accuracy remain
+unverified. Evidence-source management and decision-model evaluation are deferred
+notes in ROADMAP.md. Details: [CLI model validation](CLI_MODEL_VALIDATION.md).
+
+CLI model planning follow-up: ordinary chat with a configured provider bypasses
+keyword routing. A schema-validated model proposal selects an allowlisted task,
+then enters its existing approval handler. Evidence interpretation is directed
+to investigation; slash commands remain direct and offline routing is retained.
+No shell dispatch, provider selection or recursive chat action is exposed to the
+planner. Declined tasks, invalid proposals, original question preservation,
+terminal escaping and approved real scoped retrieval are covered by tests.
+Measured targeted checks: **45 passed in 4.02 seconds** outside the sandbox
+(existing GUI socket test requires socket binding); Ruff and diff whitespace
+passed. Live planner behavior against the user's server remains unverified.
+
+Remote HTTP follow-up: provider JSON accepts `allow_insecure_http: true` together
+with `allow_remote: true`. Equivalent terminal flag, GUI checkbox and
+`BLUECHEESE_ALLOW_INSECURE_HTTP=true` environment opt-in are available. HTTPS
+remains the remote default; HTTP opt-in alone does not authorize remote access.
+Base URLs still resolve to OpenAI-compatible `/v1/chat/completions`, independent
+of the chosen port. Evidence and credentials on HTTP are unencrypted.
+Measured checks: **37 passed** across provider, terminal, demo UI, console and
+agent-provider tests; Ruff and diff whitespace passed. No live server requests.
+
 Interactive terminal follow-up: `./blue-cheese --cli`, `./bluecheese --cli` and
 `bluecheese chat` open the operational terminal. Existing GUI defaults and legacy
 subcommands remain. Slash commands and common task requests cover EVE import/follow,
 triage, network summaries, investigations and saved reports. Tasks default to
 declined approval; an approved investigation covers bounded agent reads/model
 requests and report persistence. Actual activity events stream during the run;
-Ctrl-C requests cooperative cancellation. Unknown chat uses separately approved,
-single-turn model requests without evidence/tools and only suggests commands.
+Ctrl-C requests cooperative cancellation. With a provider, ordinary chat uses
+separately approved structured model task planning, with up to three prior chat
+exchanges and no telemetry/task results. Valid allowlisted proposals enter the
+existing task approval handlers without requiring slash-command reentry. Evidence
+interpretation is directed to the cited investigation workflow with the original
+question; explicit slash commands bypass planning. Offline keyword routing remains.
 Terminal control characters in data/model output are escaped.
 
 Provider settings accept a selected JSON file (`config.example.json` documents

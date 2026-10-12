@@ -156,12 +156,17 @@ def test_invented_citation_is_rejected_before_critic(tmp_path):
         runtime.close()
 
 
-def test_cancellation_retains_attempt_and_stops_new_model_calls(tmp_path):
+@pytest.mark.parametrize("transport_fails", [False, True])
+def test_cancellation_retains_attempt_and_stops_new_model_calls(
+    tmp_path, transport_fails
+):
     runtime = DemoRuntime(tmp_path)
     try:
 
         def transport(*unused):
             runtime.cancel()
+            if transport_fails:
+                raise RuntimeError("Model provider timed out")
             return assessment("ignored")
 
         report = runtime.run(
@@ -192,6 +197,35 @@ def test_shared_tool_budget_stops_agent_loop(tmp_path):
         assert report["run_status"] == "INCOMPLETE"
         assert report["budget"]["calls"] == 3
         assert len(calls) == 1
+    finally:
+        runtime.close()
+
+
+def test_exhausted_shared_retrieval_budget_reserves_final_assessments(tmp_path):
+    runtime = DemoRuntime(tmp_path)
+    calls = []
+    try:
+
+        def transport(config, payload, timeout):
+            calls.append(payload)
+            context = json.loads(payload["messages"][1]["content"])
+            if len(calls) == 1:
+                return tool("get_event", {"event_id": context["selected_seed_id"]})
+            assert "tools" not in payload
+            assert payload["response_format"]["type"] == "json_schema"
+            assert "No further tools" in payload["messages"][-1]["content"]
+            return assessment(context["selected_seed_id"], "UNCERTAIN")
+
+        report = runtime.run(
+            "suspicious",
+            "clean",
+            max_calls=4,
+            provider=AgentModelProvider(profile(), transport),
+        )
+        assert report["run_status"] == "COMPLETED"
+        assert report["budget"]["calls"] == 4
+        assert report["provider_activity"]["attempts"] == 3
+        assert report["falsifier"]["model_review"] == "completed"
     finally:
         runtime.close()
 

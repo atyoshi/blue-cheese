@@ -7,7 +7,7 @@ from pathlib import Path
 import streamlit as st
 
 from bluecheese.adapters.agent_provider import AgentModelProvider, completion_endpoint
-from bluecheese.adapters.model_provider import ModelProfile
+from bluecheese.adapters.model_provider import ModelProfile, investigation_seconds
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.source_path import readable_eve_path
 from bluecheese.interfaces.console_activity import agent_activity
@@ -64,8 +64,13 @@ def provider_controls(runtime):
             value=profile.api_key_env if profile else "BLUECHEESE_MODEL_API_KEY",
         )
         remote = st.checkbox(
-            "Allow sending normalized evidence to a remote HTTPS endpoint",
+            "Allow sending normalized evidence to a remote endpoint",
             value=profile.allow_remote if profile else False,
+        )
+        insecure_http = st.checkbox(
+            "Allow unencrypted remote HTTP",
+            value=profile.allow_insecure_http if profile else False,
+            help="Requires remote access above. Evidence and any API key travel without encryption.",
         )
         output = st.selectbox(
             "Report format",
@@ -82,7 +87,7 @@ def provider_controls(runtime):
         timeout = st.number_input(
             "Timeout per model call (seconds)",
             min_value=1.0,
-            max_value=120.0,
+            max_value=600.0,
             value=float(profile.timeout) if profile else 20.0,
         )
         tokens = st.number_input(
@@ -104,6 +109,8 @@ def provider_controls(runtime):
                         timeout=timeout,
                         max_output_tokens=tokens,
                         allow_remote=remote,
+                        allow_insecure_http=insecure_http,
+                        enable_thinking=profile.enable_thinking if profile else None,
                         api_key=api_key
                         or (
                             profile.api_key
@@ -322,7 +329,7 @@ def telemetry_table(runtime, snapshot, event_type, learning=False):
                 *SCOPE,
                 seed_event_id=selected,
                 max_calls=8,
-                max_seconds=60.0 if runtime.provider else 5.0,
+                max_seconds=investigation_seconds(runtime.provider),
             )
             st.success(
                 "Investigation submitted. Open Investigations for the saved result."

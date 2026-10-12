@@ -4,6 +4,7 @@
   "falsifier_model": "",
   "api_key_env": "BLUECHEESE_MODEL_API_KEY",
   "allow_remote": false,
+  "allow_insecure_http": false,
   "timeout": 20,
   "max_output_tokens": 2048,
   "max_attempts": 6,

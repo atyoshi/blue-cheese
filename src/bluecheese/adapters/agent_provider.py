@@ -50,7 +50,11 @@ POLICY = (
     "Missing evidence is not benign evidence. Do not invent tests or tool results. "
     "The Falsifier challenges the candidate hypothesis, seeks counterevidence and returns "
     "a revised assessment; it must preserve unresolved limitations and contradictory evidence. "
-    "Return a JSON report matching the supplied schema when ready."
+    "Return a JSON report matching the supplied schema when ready. "
+    "Keep the report concise: at most four short claims with directly relevant "
+    "retrieved citations. Summarize limitations briefly instead of restating all "
+    "records. Preserve contradictory evidence and explicitly identify any "
+    "unreviewed activity; a bounded run is not an exhaustive review."
 )
 
 
@@ -143,9 +147,14 @@ class AgentModelProvider:
             kind="model",
         )
         try:
-            response = self.transport(
-                self.profile, payload, min(remaining, self.profile.timeout)
-            )
+            try:
+                response = self.transport(
+                    self.profile, payload, min(remaining, self.profile.timeout)
+                )
+            except Exception:
+                # Cancellation still wins when an in-flight transport times out.
+                tools.check_cancelled()
+                raise
             tools.check_cancelled()
             if tools.clock() - tools.started >= tools.max_seconds:
                 raise BudgetExceeded("Provider exceeded the cooperative run deadline")
@@ -207,10 +216,27 @@ class AgentModelProvider:
         ]
         tools.role = role
         for index in range(attempts):
-            final = index == attempts - 1
+            retrieval_exhausted = len(tools.activity) >= tools.max_calls
+            final = index == attempts - 1 or retrieval_exhausted
+            if final:
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": (
+                            "This is your final assessment turn. No further tools are available. "
+                            "Return only the concise JSON report using already retrieved evidence; "
+                            "explicitly state any missing checks or evidence."
+                        ),
+                    },
+                ]
             message = self._request(tools, messages, role, activity, final=final)
             calls = message.get("tool_calls")
             if calls:
+                if retrieval_exhausted:
+                    raise BudgetExceeded(
+                        "Evidence tool budget exhausted; model requested further retrieval"
+                    )
                 if final or not isinstance(calls, list) or len(calls) != 1:
                     raise ValueError(
                         "Provider must request one tool per turn, before its final turn"

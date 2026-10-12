@@ -22,6 +22,8 @@ def main():
     chat.add_argument('--falsifier-model')
     chat.add_argument('--api-key-env', help='Environment variable containing the API key')
     chat.add_argument('--allow-remote', action='store_true', default=None)
+    chat.add_argument('--allow-insecure-http', action='store_true', default=None,
+                      help='Allow unencrypted remote HTTP (also requires --allow-remote)')
     chat.add_argument('--json-mode', action='store_true', default=None)
     chat.add_argument('--timeout', type=float)
     chat.add_argument('--max-output-tokens', type=int)

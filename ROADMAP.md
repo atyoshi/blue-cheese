@@ -36,6 +36,23 @@ Next dependencies:
 3. Sustained ingestion/overload, sensor drop monitoring, spool lifecycle management,
    Docker execution and remaining master-plan acceptance criteria.
 
+Requested CLI follow-up (2026-10-12): evidence-source management. Add a local
+system-info view showing the active source, persisted import provenance, database
+location and ingestion health; distinguish saved evidence from current-session
+state. Support explicitly selecting/changing/following sources without deleting
+prior evidence or silently mixing case scope. Keep exact host paths and secrets
+out of model planning by default. Quarantine counts should explain unsupported
+EVE event types separately from malformed input. This is deferred, not implemented.
+
+Requested model-role follow-up (2026-10-12): evaluate model-assisted triage and
+case/task selection against the deterministic baseline. Current Triage,
+Correlation and Orchestrator are rules; Investigator and the model-review part
+of Falsifier use the configured LLM and typed tools. Consider native llama.cpp
+decision models for bounded classification/routing as a separate optional
+adapter (`/v1/systemone`, not Chat Completions). Measure quality, abstention and
+latency before adoption; scope, budgets, approvals and citation checks remain
+software-enforced. No new model downloads or framework are authorized by this note.
+
 Current Unix stream input is local, single-producer and owner-only. It uses a
 256 MiB persistent receipt spool and stops visibly on disconnect, quota or unresolved
 partial prior records. It does not guarantee sensor-side delivery completeness.
