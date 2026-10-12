@@ -548,6 +548,14 @@ Provider errors are categorized as timeout, connection, authentication, rate lim
 
 Remote provider use is opt-in per configuration profile. State which evidence fields may leave the machine and allow a redacted profile. Keep credentials in environment variables or an appropriate secret mechanism, not prompts, source control, reports or debug traces. A local model server is a separate optional process; its memory and availability are monitored separately from the application.
 
+The operational GUI must expose provider selection, OpenAI-compatible API base URL,
+Investigator/Falsifier model names, credential input or environment-variable reference,
+output capability mode, remote-evidence opt-in and bounded call settings. Applying a
+profile affects subsequent runs and must be rejected while a run is active or queued.
+An explicit capability-test button uses synthetic data to exercise tool calling and
+structured output; rendering the GUI must never initiate model calls. Identify
+process-only settings and keep entered credentials out of persisted artifacts.
+
 ## 16 Curated context retrieval and adversarial evidence
 
 ### Retrieval lifecycle

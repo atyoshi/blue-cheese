@@ -5,6 +5,14 @@ an EVE file or local Unix stream, explore traffic, inspect original logs, run a
 bounded investigation, and save a cited report and your analyst decision.
 Suricata performs capture and detection; Blue Cheese consumes its output.
 
+After installation, choose your workspace:
+
+```bash
+./blue-cheese --cli                       # Interactive agent terminal
+./blue-cheese --cli --config config.json  # Terminal with your model server
+./bluecheese                             # Browser-based analyst console
+```
+
 The operational console runs locally without a model key. It uses a rule-based
 investigator by default. This is a single-analyst development release: individual
 authentication, roles and shared SOC deployment remain unfinished. Native macOS
@@ -13,6 +21,7 @@ compatibility remain unverified. See [current verification](docs/TESTING.md) and
 [release gates](docs/RELEASE_GATES.md).
 
 Quick links: [install](#install-and-open-the-console) ·
+[agent terminal](#interactive-agent-terminal) ·
 [connect telemetry](#connect-telemetry) ·
 [investigate](#investigate-and-record-a-decision) ·
 [backup and maintenance](#check-back-up-and-maintain-state) ·
@@ -47,6 +56,9 @@ want live sensor output; an existing EVE file needs no running sensor.
 | Task | Command |
 | --- | --- |
 | Open the operational GUI | `./bluecheese` |
+| Open the interactive agent terminal | `./blue-cheese --cli` |
+| Use a model configuration file | `./blue-cheese --cli --config config.json` |
+| Show terminal startup options | `./blue-cheese --cli --help` |
 | Choose an explicit port | `./bluecheese gui --port 8502` |
 | Choose a state directory | `./bluecheese --data-dir my-soc gui` |
 | Check configuration with the GUI stopped | `./bluecheese doctor` |
@@ -54,7 +66,7 @@ want live sensor output; an existing EVE file needs no running sensor.
 | Show commands/options | `./bluecheese --help` or `./bluecheese gui --help` |
 
 Put the global `--data-dir` option **before** the subcommand. Relative state paths
-are relative to the terminal's working directory. The GUI, doctor and retention
+are relative to the terminal's working directory. The GUI, agent terminal, doctor and retention
 commands default to `./bluecheese-operations`; legacy CLI commands default to
 `./bluecheese-data`. Use the same explicit absolute state path across launches
 and maintenance commands if you work from different directories. Only one process
@@ -65,6 +77,105 @@ Optional: run `./install-command.sh` to link this checkout's launcher into
 `export PATH="$HOME/.local/bin:$PATH"`, and persist it in your shell configuration.
 You can then use `bluecheese` from other directories; state paths still follow the
 working directory. The link depends on this checkout remaining in place.
+
+## Interactive agent terminal
+
+After installation, start the terminal with one command:
+
+```bash
+./blue-cheese --cli
+```
+
+`./bluecheese --cli` and `bluecheese chat` are equivalent. The GUI remains the
+default without arguments. The terminal uses `bluecheese-operations` by default;
+stop the GUI before opening the same state directory, or select a separate one:
+`./blue-cheese --cli --data-dir terminal-state`.
+
+Enter `/help` for commands. A typical session is:
+
+```text
+/import /absolute/path/eve.json
+triage alerts
+show network information
+investigate whether the alert is supported by the flows
+show the latest report
+/quit
+```
+
+| Terminal command | What it does |
+| --- | --- |
+| `/import PATH` | Import a static EVE file with resumable cursors |
+| `/follow PATH` / `/stop` | Start or stop following an EVE file |
+| `/alerts` | Show alert evidence IDs and normalized records |
+| `/triage` | Group and prioritize alerts using rules |
+| `/network` | Summarize observed endpoints, protocols and connections |
+| `/investigate QUESTION` | Run the agent workflow and save a cited report |
+| `/report [RUN_ID]` / `/history` | Read the latest or selected report, or list runs |
+| `/config [PATH]` / `/rules` | Select a model config file or offline rules |
+| `/test` | Check the model endpoint's tool and report capabilities |
+| `/status` | Show source and investigation state |
+| `/help` / `/quit` | Show help or exit |
+
+Each evidence task proposes its scope and waits for `y` or `yes`; Enter declines.
+Investigations show actual role/action handoffs as they execute and save cited
+reports in the same operational history as the GUI. Approval for an investigation
+covers its bounded read-only evidence tools, model calls and saved report.
+Ctrl-C during an investigation requests cooperative cancellation; the active model
+call must return before it stops. Ctrl-D or `/quit` closes the runtime.
+
+`/import` reads a static EVE JSONL file once (16 MiB maximum), using bounded
+ingestion batches, quarantine and resumable cursors. An unfinished final line is
+reported as pending bytes and remains uncommitted. `/follow /absolute/path/eve.json`
+uses the existing bounded append-only ingestion worker with quarantine and cursor
+recovery; `/stop` stops
+following. Automatic investigations stay disabled. `/triage` reads at most 20
+alerts; `/network` describes at most 1,000 recent records and performs no scan.
+`/report RUN_ID` reads a historical report; `/history` lists run IDs. Reports
+and telemetry are displayed as escaped JSON, including original evidence IDs.
+
+For an OpenAI-compatible server, copy [config.example.json](config.example.json)
+to `config.json`, set its endpoint and model, then launch:
+
+```bash
+cp config.example.json config.json
+# Edit config.json to set your server's endpoint and model name.
+./blue-cheese --cli --config config.json
+```
+
+The example config uses a local server at `http://127.0.0.1:8080/v1`. Replace
+`your-model-name` with the model identifier served by your endpoint. If the
+server requires a key, export `BLUECHEESE_MODEL_API_KEY` before launch, or set
+`api_key_env` to the name of an environment variable that already holds your key.
+To select a file after starting the terminal, enter `/config` and supply its path
+at the prompt.
+
+Or use flags:
+
+```bash
+./blue-cheese --cli --endpoint http://127.0.0.1:8080/v1 --model your-model
+```
+
+Inside the session, `/config` prompts for a config path, `/config PATH` loads it,
+and `/rules` restores offline investigation. Settings do not send a request.
+`/test` asks approval before synthetic tool/schema capability probes. With no
+file or flags, the existing `BLUECHEESE_MODEL_*` environment configuration applies;
+otherwise the selected file/flags define the provider, and flags override file
+fields. `/help` and `--cli --help` list tasks and startup options.
+
+Config fields are `endpoint`, `model`, `falsifier_model`, `api_key_env`, optional
+`api_key`, `allow_remote`, `timeout`, `max_output_tokens`, `max_attempts`, and
+`json_mode`. Use `api_key_env` to reference an exported secret; `config.json` is
+Git-ignored. Base URLs and full Chat Completions URLs are accepted. Remote
+endpoints require HTTPS and `allow_remote: true` (or `--allow-remote`). Model
+investigations send normalized evidence to that endpoint. Use `json_mode: true`
+for servers without strict JSON Schema; local report/citation validation still
+applies. Live endpoint compatibility has not been verified.
+
+Common task requests route locally. Other chat asks approval before sending only
+your message to the configured model. That assistant can explain concepts or
+suggest a command; enter the command to approve its execution. It has no evidence
+access in general chat and does not execute model-generated commands. Chat is
+single-turn; investigation questions enter the bounded evidence workflow.
 
 ## First walkthrough: connect, inspect, investigate
 
@@ -232,7 +343,7 @@ bounded seed group is investigated per run.
 
 Expand **Investigation budget** to set **Tool calls**, **Seconds (cooperative
 limit)** and **Check contradicting evidence**. The operational defaults are eight
-tool calls and five seconds with rules, or 30 seconds with a configured model.
+tool calls and five seconds with rules, or 60 seconds with configured model agents.
 The selected-alert shortcut uses these fixed defaults; edit budgets through the
 Investigations page for a custom run. The presentation defaults are six calls and
 five seconds. Retrieval is capped at 100 records and 64 KiB per call. Failed tool
@@ -242,6 +353,16 @@ One investigation runs at a time, while ingestion continues. **Cancel
 investigation** requests cooperative cancellation: an active provider call must
 return before it takes effect. Time limits are cooperative too. Restart marks
 unfinished runs interrupted; saved completed reports survive.
+
+The **Agent activity** panel follows the current investigation on every workspace
+page. It shows the active role, current action and elapsed time, with separate
+labels for rule policies, model calls and evidence tools. Expand **Agent handoffs
+and activity timeline** to see prioritization, task handoffs, retrieval and report
+validation, including fast steps that finished between refreshes. The panel updates
+once per second independently of telemetry auto refresh and never starts work.
+Cancellation, failures and exhausted budgets appear explicitly. The latest run's
+live timeline retains at most 128 events; saved reports retain the activity through
+report preparation in their reasoning audit.
 
 ### Review the report before deciding
 
@@ -362,8 +483,23 @@ reports or backups and does not promise immediate filesystem shrinkage.
 
 ## Optional model provider
 
-No model is downloaded or required. To use an existing server implementing Chat
-Completions with strict JSON Schema responses, configure it **before launch**:
+No model is downloaded or required. In the operational GUI, open **Agents and
+model endpoint** in the sidebar, select **Model agents**, and enter your existing
+OpenAI-compatible API base URL (such as `http://127.0.0.1:8080/v1`), model name,
+and optional API key. You may choose a separate Falsifier model on the same server.
+Click **Apply agent settings**, then **Test agent connection**. The test sends
+synthetic observations, exercises a tool-call round trip and structured report
+output for each distinct model, and may incur endpoint usage. It sends no stored
+telemetry. Choose **JSON object** if your server lacks strict JSON Schema support;
+reports still undergo local schema and citation validation.
+
+Settings apply to subsequent investigations without restarting and last for the
+application process. Credentials entered in the GUI stay in memory; they are not
+written to disk or reports. An API key environment variable is also supported.
+Provider changes and connection tests are blocked during investigations. Select
+**Rule-based** and apply to return to offline rules.
+
+Alternatively, configure an existing server **before launch**:
 
 ```bash
 export BLUECHEESE_MODEL_ENDPOINT=http://127.0.0.1:8080/v1/chat/completions
@@ -375,8 +511,8 @@ Set `BLUECHEESE_MODEL_API_KEY` through your environment/secret manager if needed
 The sidebar identifies the selected provider. Doctor validates configuration but
 never calls the endpoint. Test a manual investigation and inspect its status,
 errors and citations to check your actual server/model; live compatibility remains
-unverified. Restart the app after changing provider configuration. To return to
-rules, unset the provider variables before restarting:
+unverified. Environment changes require restarting. To return to rules on launch,
+unset the provider variables before restarting:
 
 ```bash
 unset BLUECHEESE_MODEL_ENDPOINT BLUECHEESE_MODEL BLUECHEESE_MODEL_API_KEY BLUECHEESE_ALLOW_REMOTE_MODEL
@@ -385,11 +521,21 @@ unset BLUECHEESE_MODEL_ENDPOINT BLUECHEESE_MODEL BLUECHEESE_MODEL_API_KEY BLUECH
 
 Remote endpoints require HTTPS and `BLUECHEESE_ALLOW_REMOTE_MODEL=true`. Enabling
 them sends normalized observations, including IPs and detection signatures, to
-the configured endpoint; exact raw logs are omitted. Provider calls use one
-attempt, bounded input/output, no redirects and a timeout bounded by the remaining
-cooperative deadline. Software controls retrieval and countertests; the model
-cannot issue SQL or shell commands. Mechanical citation checks leave semantic
-claim validation to review.
+the configured endpoint; exact raw logs are omitted. The Investigator can request
+bounded evidence queries; the Falsifier then challenges its candidate assessment,
+can retrieve counterevidence, and returns a revised report. Both share the run's
+tool/time budgets and a configurable provider-call cap (default six, split between
+the two roles). The last turn of each role requires a report. Disabling
+falsification disables the model critic and the fixed flow countertest.
+
+The broker permits only `get_event`, `list_alerts`, `find_events_by_ip`, and
+`search_events` within the fixed snapshot. Models cannot issue SQL, shell commands,
+or change scope. Triage, correlation, scheduling and report assembly remain
+deterministic. Input/output sizes, redirects and timeouts are bounded. Saved JSON
+reports and the GUI audit include roles, model attempts and returned usage (unknown
+usage stays unknown). Mechanical citation checks leave semantic claim validation
+to review. Set `BLUECHEESE_MODEL_MODE=summary` to retain the original one-call
+structured assessment adapter when launching from environment configuration.
 
 ## Troubleshooting
 

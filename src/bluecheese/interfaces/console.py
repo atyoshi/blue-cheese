@@ -6,8 +6,11 @@ from pathlib import Path
 
 import streamlit as st
 
+from bluecheese.adapters.agent_provider import AgentModelProvider, completion_endpoint
+from bluecheese.adapters.model_provider import ModelProfile
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.source_path import readable_eve_path
+from bluecheese.interfaces.console_activity import agent_activity
 from bluecheese.interfaces.console_design import (
     apply_design,
     investigation_link,
@@ -24,6 +27,124 @@ SCOPE = ("live", "external")
 @st.cache_resource
 def get_runtime(state_dir):
     return DemoRuntime(state_dir, load_fixtures=False)
+
+
+def provider_controls(runtime):
+    provider = runtime.provider
+    profile = provider.profile if provider else None
+    busy = runtime.status()["investigation_pending"] or runtime.run_lock.locked()
+    st.caption(
+        "Investigator and Falsifier can use an OpenAI-compatible server. "
+        "Triage and correlation use rules. Settings last for this app process."
+    )
+    with st.form("agent-provider-settings", clear_on_submit=True):
+        mode = st.selectbox(
+            "Investigation engine",
+            ["Rule-based", "Model agents"],
+            index=1 if provider else 0,
+        )
+        endpoint = st.text_input(
+            "API base URL or Chat Completions URL",
+            value=profile.endpoint if profile else "http://127.0.0.1:8080/v1",
+        )
+        model = st.text_input(
+            "Investigator model", value=profile.model if profile else ""
+        )
+        falsifier_model = st.text_input(
+            "Falsifier model (blank uses Investigator)",
+            value=getattr(provider, "falsifier_model", ""),
+        )
+        api_key = st.text_input(
+            "API key (optional, kept in memory)",
+            type="password",
+            help="Leave blank to retain the applied key or use the environment variable below.",
+        )
+        key_env = st.text_input(
+            "API key environment variable",
+            value=profile.api_key_env if profile else "BLUECHEESE_MODEL_API_KEY",
+        )
+        remote = st.checkbox(
+            "Allow sending normalized evidence to a remote HTTPS endpoint",
+            value=profile.allow_remote if profile else False,
+        )
+        output = st.selectbox(
+            "Report format",
+            ["Strict JSON Schema", "JSON object"],
+            index=1 if getattr(provider, "json_mode", False) else 0,
+            help="Use JSON object for servers without strict schema support. Both modes validate reports and citations locally.",
+        )
+        attempts = st.number_input(
+            "Maximum model calls per investigation",
+            min_value=2,
+            max_value=12,
+            value=getattr(provider, "max_attempts", 6),
+        )
+        timeout = st.number_input(
+            "Timeout per model call (seconds)",
+            min_value=1.0,
+            max_value=120.0,
+            value=float(profile.timeout) if profile else 20.0,
+        )
+        tokens = st.number_input(
+            "Maximum output tokens per call",
+            min_value=128,
+            max_value=8192,
+            value=profile.max_output_tokens if profile else 2048,
+        )
+        apply = st.form_submit_button("Apply agent settings", disabled=busy)
+    if apply:
+        try:
+            selected = None
+            if mode == "Model agents":
+                selected = AgentModelProvider(
+                    ModelProfile(
+                        endpoint=completion_endpoint(endpoint),
+                        model=model.strip(),
+                        api_key_env=key_env.strip(),
+                        timeout=timeout,
+                        max_output_tokens=tokens,
+                        allow_remote=remote,
+                        api_key=api_key
+                        or (
+                            profile.api_key
+                            if profile
+                            and profile.endpoint == completion_endpoint(endpoint)
+                            and profile.api_key_env == key_env.strip()
+                            else ""
+                        ),
+                    ),
+                    max_attempts=attempts,
+                    json_mode=output == "JSON object",
+                    falsifier_model=falsifier_model,
+                )
+            runtime.configure_provider(selected)
+            st.session_state.pop("agent-provider-test", None)
+            st.success(
+                "Agent settings applied."
+                if selected
+                else "Rule-based investigation enabled."
+            )
+        except (ValueError, RuntimeError) as error:
+            st.error(str(error))
+    st.caption(
+        "Models receive normalized observations, including IPs and signatures; exact raw logs are omitted. "
+        "Keys are never saved to reports or disk. Test sends synthetic data and may incur endpoint usage."
+    )
+    if st.button(
+        "Test agent connection",
+        disabled=busy or not isinstance(runtime.provider, AgentModelProvider),
+    ):
+        try:
+            with st.spinner("Testing tool calling and structured reports…"):
+                result = runtime.test_provider()
+            st.session_state["agent-provider-test"] = result
+        except (ValueError, RuntimeError) as error:
+            st.session_state["agent-provider-test"] = {
+                "status": "failed",
+                "error": str(error),
+            }
+    if "agent-provider-test" in st.session_state:
+        st.json(st.session_state["agent-provider-test"])
 
 
 def source_controls(runtime):
@@ -201,7 +322,7 @@ def telemetry_table(runtime, snapshot, event_type, learning=False):
                 *SCOPE,
                 seed_event_id=selected,
                 max_calls=8,
-                max_seconds=30.0 if runtime.provider else 5.0,
+                max_seconds=60.0 if runtime.provider else 5.0,
             )
             st.success(
                 "Investigation submitted. Open Investigations for the saved result."
@@ -277,7 +398,7 @@ def investigations(runtime, counts):
         max_seconds = st.number_input(
             "Seconds (cooperative limit)",
             min_value=0.0,
-            value=30.0 if runtime.provider else 5.0,
+            value=60.0 if runtime.provider else 5.0,
         )
         falsification = st.checkbox("Check contradicting evidence", value=True)
     active = runtime.status()["active_run_id"]
@@ -514,6 +635,8 @@ def main():
                 runtime
             )
         st.sidebar.divider()
+        with st.sidebar.expander("Agents and model endpoint"):
+            provider_controls(runtime)
         st.sidebar.caption(
             "Local analyst console · "
             + (
@@ -523,6 +646,7 @@ def main():
             )
         )
         st.title(page)
+        st.fragment(run_every=1.0)(agent_activity)(runtime)
         st.fragment(run_every=2.0 if auto_refresh else None)(workspace)(
             runtime, page, learning, auto_refresh
         )

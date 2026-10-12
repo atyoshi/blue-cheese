@@ -13,6 +13,7 @@ from bluecheese.agents.investigator import investigate
 from bluecheese.agents.orchestrator import Orchestrator
 from bluecheese.application.ingestion import EveFollower
 from bluecheese.application.rotating_source import RotatingEveFollower
+from bluecheese.application.run_activity import RunActivity
 from bluecheese.application.store_worker import StoreWorker, WorkerStore
 from bluecheese.application.unix_stream import UnixStreamFollower
 
@@ -27,6 +28,7 @@ class DemoRuntime:
     def __init__(self, state_dir, *, load_fixtures=True):
         self.state_dir = Path(state_dir)
         self.lock = threading.RLock()
+        self.activity = RunActivity(self.lock)
         self.provider = None if load_fixtures else configured_provider()
         self.database = StoreWorker(self.state_dir / "evidence.duckdb")
         self.store = WorkerStore(self.database)
@@ -84,6 +86,39 @@ class DemoRuntime:
                 raise RuntimeError("Runtime is closed")
         return self.database.call(method, *args, **kwargs)
 
+    def configure_provider(self, provider):
+        """Apply process-local settings only between investigations."""
+        with self.lock:
+            if self.closed or self.closing:
+                raise RuntimeError("Runtime is closed")
+            if self.run_lock.locked() or (
+                self.pending_run and not self.pending_run.done()
+            ):
+                raise RuntimeError(
+                    "Wait for the current investigation before changing providers"
+                )
+            self.provider = provider
+
+    def test_provider(self):
+        if not self.run_lock.acquire(blocking=False):
+            raise RuntimeError(
+                "Wait for the current investigation before testing the provider"
+            )
+        try:
+            with self.lock:
+                if self.closed or self.closing:
+                    raise RuntimeError("Runtime is closed")
+                if self.pending_run and not self.pending_run.done():
+                    raise RuntimeError(
+                        "Wait for the pending investigation before testing the provider"
+                    )
+                provider = self.provider
+            if not provider or not hasattr(provider, "test_connection"):
+                raise ValueError("Apply a tool-using agent provider before testing")
+            return provider.test_connection()
+        finally:
+            self.run_lock.release()
+
     def run(
         self,
         scenario,
@@ -102,6 +137,12 @@ class DemoRuntime:
                 if self.closed or self.closing:
                     raise RuntimeError("Runtime is closed")
                 self.cancel_event.clear()
+                self.activity.reset()
+                self.activity.emit(
+                    "Orchestrator",
+                    "working",
+                    "Freezing case evidence for this investigation.",
+                )
                 run = self.database.call(
                     "create_run",
                     scenario,
@@ -111,7 +152,9 @@ class DemoRuntime:
                     seed_event_id=seed_event_id,
                 )
                 self.active_run_id = run["run_id"]
+                self.activity.run_id = run["run_id"]
                 self.investigation_runs += 1
+                provider = self.provider
             scoped = WorkerStore(
                 self.database, run["snapshot_id"], run["snapshot"], run["run_id"]
             )
@@ -121,9 +164,11 @@ class DemoRuntime:
                 variant,
                 cancel_event=self.cancel_event,
                 seed_event_id=seed_event_id,
+                question=question,
+                activity_callback=self.activity.emit,
                 synthetic=scenario in SCENARIOS
                 or (scenario == "live" and variant == "replay"),
-                **{"provider": self.provider, **settings},
+                **{"provider": provider, **settings},
             )
             if scenario == "live" and variant == "external":
                 report["source_incidents"] = self.database.call("source_incidents")
@@ -136,6 +181,18 @@ class DemoRuntime:
                         report["unresolved"].append(
                             "Resolve source continuity incidents before accepting a benign interpretation."
                         )
+            self.activity.emit(
+                "Orchestrator",
+                "handoff",
+                "Validation finished; passing the result to Reporter.",
+                handoff_to="Reporter",
+            )
+            self.activity.emit(
+                "Reporter",
+                "working",
+                "Assembling the cited report and saving the investigation result.",
+            )
+            report["workflow_activity"] = self.activity.snapshot()["events"]
             self.orchestrator.complete(
                 self.database,
                 run,
@@ -143,8 +200,31 @@ class DemoRuntime:
                 synthetic=scenario in SCENARIOS
                 or (scenario == "live" and variant == "replay"),
             )
+            self.activity.emit(
+                "Reporter",
+                "complete",
+                "Cited report saved; available in investigation history.",
+            )
+            self.activity.emit(
+                "Orchestrator",
+                report["run_status"].lower(),
+                {
+                    "COMPLETED": "Investigation completed. Review the saved findings and citations.",
+                    "CANCELLED": "Investigation cancelled. The saved report records unfinished work.",
+                    "INCOMPLETE": "Investigation stopped at its budget limit. The saved report records unfinished work.",
+                }.get(report["run_status"], "Investigation finished."),
+            )
+            self.activity.finish(report["run_status"])
             return report
         except Exception as error:
+            current = self.activity.snapshot()["events"]
+            role = current[-1]["role"] if current else "Orchestrator"
+            self.activity.emit(
+                role,
+                "failed",
+                "This step failed. Inspect the saved investigation error before retrying.",
+            )
+            self.activity.finish("FAILED")
             if run:
                 self.database.call(
                     "finish_run", run["run_id"], "FAILED", error=str(error)[:4096]
@@ -159,10 +239,20 @@ class DemoRuntime:
         with self.lock:
             if self.closed or self.closing:
                 raise RuntimeError("Runtime is closed")
-            if self.active_run_id or (self.pending_run and not self.pending_run.done()):
+            if (
+                self.run_lock.locked()
+                or self.active_run_id
+                or (self.pending_run and not self.pending_run.done())
+            ):
                 raise RuntimeError(
                     "An investigation is already active; cancel it or wait"
                 )
+            self.activity.reset("QUEUED")
+            self.activity.emit(
+                "Orchestrator",
+                "queued",
+                "Investigation queued; waiting for the investigation worker.",
+            )
             self.pending_run = self.executor.submit(
                 self.run, scenario, variant, **settings
             )
@@ -173,6 +263,11 @@ class DemoRuntime:
             if self.active_run_id is None:
                 return False
             self.cancel_event.set()
+            self.activity.emit(
+                "Orchestrator",
+                "cancel_requested",
+                "Cancellation requested; an active model call must return before the run can stop.",
+            )
             return True
 
     def start(
@@ -298,12 +393,19 @@ class DemoRuntime:
                 self.closed
                 or self.closing
                 or self.active_run_id
+                or self.run_lock.locked()
                 or (self.pending_run and not self.pending_run.done())
             ):
                 return False
             event_id = self.database.call("claim_work")
             if not event_id:
                 return False
+            self.activity.reset("QUEUED")
+            self.activity.emit(
+                "Orchestrator",
+                "queued",
+                "Alert investigation queued for the investigation worker.",
+            )
             self.pending_run = self.executor.submit(self._run_work, event_id)
             return True
 
@@ -318,7 +420,7 @@ class DemoRuntime:
                 "external",
                 seed_event_id=event_id,
                 max_calls=8,
-                max_seconds=30.0 if self.provider else 5.0,
+                max_seconds=60.0 if self.provider else 5.0,
             )
             self.database.call(
                 "finish_work", event_id, report["run_status"], report["run_id"]

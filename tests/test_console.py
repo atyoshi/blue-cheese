@@ -10,6 +10,81 @@ APP = Path(__file__).parents[1] / "src/bluecheese/interfaces/console.py"
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
 
 
+def test_gui_configures_agents_probes_only_on_click_and_returns_to_rules(
+    tmp_path, monkeypatch
+):
+    from bluecheese.adapters.agent_provider import AgentModelProvider
+
+    monkeypatch.setenv("BLUECHEESE_STATE", str(tmp_path / "state"))
+    monkeypatch.delenv("BLUECHEESE_MODEL_ENDPOINT", raising=False)
+    runtimes, probes = [], []
+
+    def create_runtime(*args, **kwargs):
+        runtime = DemoRuntime(*args, **kwargs)
+        runtimes.append(runtime)
+        return runtime
+
+    def probe(provider):
+        probes.append(provider.profile.endpoint)
+        return {"status": "passed", "tool_calling": True, "structured_output": True}
+
+    monkeypatch.setattr(
+        "bluecheese.application.demo_runtime.DemoRuntime", create_runtime
+    )
+    monkeypatch.setattr(AgentModelProvider, "test_connection", probe)
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    runtime = runtimes[0]
+    try:
+        assert not app.exception
+        assert next(
+            b for b in app.sidebar.button if b.label == "Test agent connection"
+        ).disabled
+        next(
+            s for s in app.sidebar.selectbox if s.label == "Investigation engine"
+        ).set_value("Model agents")
+        next(
+            s for s in app.sidebar.text_input if s.label == "Investigator model"
+        ).set_value("local-model")
+        next(
+            s for s in app.sidebar.text_input if s.label.startswith("Falsifier model")
+        ).set_value("critic-model")
+        next(
+            s for s in app.sidebar.text_input if s.label.startswith("API key (")
+        ).set_value("secret-for-test")
+        next(
+            b for b in app.sidebar.button if b.label == "Apply agent settings"
+        ).click().run()
+        assert not app.exception
+        assert isinstance(runtime.provider, AgentModelProvider)
+        assert (
+            runtime.provider.profile.endpoint
+            == "http://127.0.0.1:8080/v1/chat/completions"
+        )
+        assert runtime.provider.falsifier_model == "critic-model"
+        assert runtime.provider.profile.api_key == "secret-for-test"
+        app.run()
+        assert runtime.status()["investigation_runs"] == 0
+        assert probes == []
+        next(
+            b for b in app.sidebar.button if b.label == "Test agent connection"
+        ).click().run()
+        assert not app.exception
+        assert len(probes) == 1
+        app.run()
+        assert len(probes) == 1
+        next(
+            s for s in app.sidebar.selectbox if s.label == "Investigation engine"
+        ).set_value("Rule-based")
+        next(
+            b for b in app.sidebar.button if b.label == "Apply agent settings"
+        ).click().run()
+        assert not app.exception
+        assert runtime.provider is None
+        assert runtime.status()["investigation_runs"] == 0
+    finally:
+        runtime.close()
+
+
 def test_operational_runtime_has_no_synthetic_evidence_and_search_is_scoped(tmp_path):
     runtime = DemoRuntime(tmp_path / "state", load_fixtures=False)
     try:

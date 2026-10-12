@@ -21,3 +21,4 @@ telemetry/*
 build/
 dist/
 bluecheese-operations/
+config.json

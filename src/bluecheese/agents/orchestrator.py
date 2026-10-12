@@ -13,6 +13,11 @@ class Orchestrator:
         self.correlation = correlation or CorrelationAgent()
 
     def investigate(self, tools, provider, falsification):
+        tools.emit(
+            "Orchestrator",
+            "working",
+            "Loading alerts from the frozen evidence snapshot.",
+        )
         alerts = tools.call("list_alerts", limit=20)
         requested = getattr(tools, "requested_seed_id", None)
         if requested:
@@ -20,7 +25,26 @@ class Orchestrator:
             if seed is None or seed["normalized"]["event_type"] != "alert":
                 raise ValueError("Requested alert is outside the run snapshot")
             alerts = [seed] + [row for row in alerts if row["id"] != requested]
+        tools.emit(
+            "Orchestrator",
+            "handoff",
+            "Sending retrieved alerts to Triage for prioritization.",
+            handoff_to="Triage",
+        )
+        tools.emit(
+            "Triage",
+            "working",
+            "Grouping alerts and assigning review priorities.",
+            kind="rules",
+        )
         triage = self.triage.triage_events(alerts)
+        tools.emit(
+            "Triage",
+            "handoff",
+            f"Returning {len(triage['candidates'])} prioritized group(s) to Orchestrator.",
+            kind="rules",
+            handoff_to="Orchestrator",
+        )
         correlations = []
         tools.role_activity = {"triage": triage, "correlation": correlations}
         # One bounded seed group per demo run; other triggers remain inspectable.
@@ -33,8 +57,34 @@ class Orchestrator:
             )
             ip = seed["normalized"].get("src_ip")
             if ip:
+                tools.emit(
+                    "Orchestrator",
+                    "handoff",
+                    "Sending the selected alert to Correlation for related evidence.",
+                    handoff_to="Correlation",
+                )
+                tools.emit(
+                    "Correlation",
+                    "working",
+                    "Linking evidence by source, sensor, time and connection.",
+                    kind="rules",
+                )
                 related = tools.call("find_events_by_ip", ip=ip, limit=100)
                 correlations.append(self.correlation.correlate(seed, related))
+                tools.emit(
+                    "Correlation",
+                    "handoff",
+                    "Returning the bounded evidence group to Orchestrator.",
+                    kind="rules",
+                    handoff_to="Orchestrator",
+                )
+        if not correlations:
+            tools.emit(
+                "Correlation",
+                "skipped",
+                "No eligible alert endpoint is available for correlation.",
+                kind="rules",
+            )
         tools.correlated_ids = {
             event_id
             for correlation in correlations
@@ -46,7 +96,27 @@ class Orchestrator:
             if correlations
             else (alerts[0]["id"] if alerts else None)
         )
+        if not falsification:
+            tools.emit(
+                "Falsifier",
+                "skipped",
+                "Counterevidence checks are disabled for this run.",
+            )
+        tools.emit(
+            "Orchestrator",
+            "handoff",
+            "Assigning the selected evidence to Investigator for assessment.",
+            handoff_to="Investigator",
+        )
+        tools.emit(
+            "Investigator", "working", "Starting assessment of the selected evidence."
+        )
         report = provider.investigate(tools, falsification)
+        tools.emit(
+            "Orchestrator",
+            "working",
+            "Received the assessment; preparing it for validation.",
+        )
         report["triage"] = triage
         report["correlation"] = correlations
         report["workflow"] = {

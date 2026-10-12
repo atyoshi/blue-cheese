@@ -74,5 +74,8 @@ def show_report(runtime, report, key):
                 "falsifier": report["falsifier"],
                 "tool_activity": report["tool_activity"],
                 "budget": report["budget"],
+                "provider": report["provider"],
+                "provider_activity": report.get("provider_activity"),
+                "workflow_activity": report.get("workflow_activity"),
             }
         )

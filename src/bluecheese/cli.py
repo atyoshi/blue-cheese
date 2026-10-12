@@ -14,6 +14,18 @@ def main():
     parser = argparse.ArgumentParser(prog='bluecheese', description='Run without arguments to open the operational GUI.')
     parser.add_argument('--data-dir', help='State directory (GUI: bluecheese-operations; legacy CLI: bluecheese-data)')
     commands = parser.add_subparsers(dest='command')
+    chat = commands.add_parser('chat', help='Interactive agent terminal (alias: --cli)')
+    chat.add_argument('--data-dir', default=argparse.SUPPRESS)
+    chat.add_argument('--config', help='OpenAI-compatible provider JSON file')
+    chat.add_argument('--endpoint', help='API base or full Chat Completions URL')
+    chat.add_argument('--model')
+    chat.add_argument('--falsifier-model')
+    chat.add_argument('--api-key-env', help='Environment variable containing the API key')
+    chat.add_argument('--allow-remote', action='store_true', default=None)
+    chat.add_argument('--json-mode', action='store_true', default=None)
+    chat.add_argument('--timeout', type=float)
+    chat.add_argument('--max-output-tokens', type=int)
+    chat.add_argument('--max-attempts', type=int)
     commands.add_parser('import-eve').add_argument('path')
     pcap = commands.add_parser('import-pcap')
     pcap.add_argument('path')
@@ -36,13 +48,25 @@ def main():
     retention.add_argument('--apply', action='store_true')
     bench = commands.add_parser('benchmark', help='Isolated synthetic ingestion backlog measurement')
     bench.add_argument('--records', type=int, default=1000)
-    args = parser.parse_args()
+    # Keep the existing GUI default and legacy subcommands intact.
+    argv = ['chat' if value == '--cli' else value for value in sys.argv[1:]]
+    args = parser.parse_args(argv)
     if args.command is None:
         args.command = 'gui'
         args.port = None
-    directory = Path(args.data_dir or ('./bluecheese-operations' if args.command in ('gui', 'doctor', 'retention') else './bluecheese-data'))
+    directory = Path(args.data_dir or ('./bluecheese-operations' if args.command in ('gui', 'chat', 'doctor', 'retention') else './bluecheese-data'))
     try:
-        if args.command == 'benchmark':
+        if args.command == 'chat':
+            from jsonschema import ValidationError
+
+            from bluecheese.interfaces.terminal import launch
+
+            try:
+                launch(directory, args)
+            except ValidationError:
+                raise ValueError('Invalid config fields/types; see config example') from None
+            return
+        elif args.command == 'benchmark':
             from bluecheese.application.benchmark import benchmark
 
             output = benchmark(args.records)

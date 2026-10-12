@@ -3,7 +3,7 @@
 import json
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -57,6 +57,7 @@ class ModelProfile:
     timeout: float = 20.0
     max_output_tokens: int = 2048
     allow_remote: bool = False
+    api_key: str = field(default="", repr=False, compare=False)
 
     def __post_init__(self):
         url = urlsplit(self.endpoint)
@@ -89,8 +90,10 @@ class NoRedirect(HTTPRedirectHandler):
 
 def request_completion(profile, payload, timeout):
     headers = {"Content-Type": "application/json"}
-    secret = os.environ.get(profile.api_key_env)
+    secret = profile.api_key or os.environ.get(profile.api_key_env)
     if secret:
+        if any(character in secret for character in ("\r", "\n")):
+            raise ValueError("Provider API key contains invalid header characters")
         headers["Authorization"] = "Bearer " + secret
     request = Request(
         profile.endpoint, json.dumps(payload).encode(), headers, method="POST"
@@ -171,6 +174,12 @@ class StructuredModelProvider:
                 },
             },
         }
+        tools.emit(
+            "Investigator",
+            "working",
+            "Awaiting the model's structured assessment.",
+            kind="model",
+        )
         response = self.transport(
             self.profile, payload, min(remaining, self.profile.timeout)
         )
@@ -188,6 +197,12 @@ class StructuredModelProvider:
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise ValueError("Invalid provider response envelope") from error
         report["falsifier"] = countertest
+        tools.emit(
+            "Investigator",
+            "complete",
+            "Structured assessment received; returning it for citation validation.",
+            kind="model",
+        )
         report["provider_activity"] = {
             "attempts": 1,
             "max_attempts": 1,
@@ -203,10 +218,13 @@ def configured_provider():
     endpoint = os.environ.get("BLUECHEESE_MODEL_ENDPOINT")
     if not endpoint:
         return None
-    return StructuredModelProvider(
-        ModelProfile(
-            endpoint=endpoint,
-            model=os.environ.get("BLUECHEESE_MODEL", ""),
-            allow_remote=os.environ.get("BLUECHEESE_ALLOW_REMOTE_MODEL") == "true",
-        )
+    profile = ModelProfile(
+        endpoint=endpoint,
+        model=os.environ.get("BLUECHEESE_MODEL", ""),
+        allow_remote=os.environ.get("BLUECHEESE_ALLOW_REMOTE_MODEL") == "true",
     )
+    if os.environ.get("BLUECHEESE_MODEL_MODE", "agents") == "summary":
+        return StructuredModelProvider(profile)
+    from bluecheese.adapters.agent_provider import AgentModelProvider
+
+    return AgentModelProvider(profile)

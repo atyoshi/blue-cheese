@@ -32,6 +32,7 @@ class EvidenceTools:
         clock=time.monotonic,
         cancel_event=None,
         max_bytes=65536,
+        activity_callback=None,
     ):
         self.cancel_event = cancel_event
         self.max_bytes = max(2, int(max_bytes))
@@ -46,6 +47,14 @@ class EvidenceTools:
         self.started = clock()
         self.activity = []
         self.retrieved = {}
+        self.activity_callback = activity_callback
+
+    def emit(self, role, status, message, *, kind="software", handoff_to=None):
+        self.role = role
+        if self.activity_callback:
+            self.activity_callback(
+                role, status, message, kind=kind, handoff_to=handoff_to
+            )
 
     def check_cancelled(self):
         if self.cancel_event is not None and self.cancel_event.is_set():
@@ -66,6 +75,7 @@ class EvidenceTools:
         ):
             raise BudgetExceeded("Tool-call or elapsed-time limit reached")
         activity = {
+            "role": getattr(self, "role", "Orchestrator"),
             "tool": tool,
             "arguments": args,
             "returned_ids": [],
@@ -74,6 +84,12 @@ class EvidenceTools:
             "bytes": 0,
             "truncated": False,
         }
+        self.emit(
+            activity["role"],
+            "working",
+            f"Retrieving evidence with {tool}.",
+            kind="tool",
+        )
         try:
             result = getattr(self.store, tool)(*self.scope, **args)
             rows = ([result] if result else []) if tool == "get_event" else result
@@ -152,6 +168,12 @@ def related_flow(row, alert):
 
 class Falsifier:
     def check(self, tools, alert):
+        tools.emit(
+            "Falsifier",
+            "working",
+            "Checking whether flow counters weaken the alert hypothesis.",
+            kind="rules",
+        )
         # This independent query is executable and can reveal a failed connection
         # that the Investigator's initial alert retrieval never observed.
         rows = tools.call(
@@ -164,6 +186,12 @@ class Falsifier:
             if related_flow(r, alert) and (member_ids is None or r["id"] in member_ids)
         ]
         counters = [r["id"] for r in relevant if failed_flow(r)]
+        tools.emit(
+            "Falsifier",
+            "complete",
+            f"Flow countertest finished: {len(counters)} counterevidence record(s).",
+            kind="rules",
+        )
         return {
             "status": "evidence contradicted"
             if counters
@@ -180,6 +208,12 @@ class DemoInvestigator:
     label = PROVIDER_LABEL
 
     def investigate(self, tools, falsification=True):
+        tools.emit(
+            "Investigator",
+            "working",
+            "Reviewing alerts and related flows using the offline policy.",
+            kind="rules",
+        )
         alerts = getattr(tools, "seed_alerts", None)
         if alerts is None:
             alerts = tools.call("list_alerts", limit=20)
@@ -201,6 +235,12 @@ class DemoInvestigator:
         }
         if not alerts:
             result["unresolved"].append("No alert observed in this snapshot.")
+            tools.emit(
+                "Investigator",
+                "complete",
+                "No alert is available; returning an uncertain assessment.",
+                kind="rules",
+            )
             return result
         selected_seed = getattr(tools, "selected_seed_id", None)
         alert = next((row for row in alerts if row["id"] == selected_seed), alerts[0])
@@ -224,6 +264,13 @@ class DemoInvestigator:
                 "No established high-volume alerted flow observed."
             )
         if falsification:
+            tools.emit(
+                "Investigator",
+                "handoff",
+                "Passing the flow hypothesis to Falsifier for a countertest.",
+                kind="rules",
+                handoff_to="Falsifier",
+            )
             check = Falsifier().check(tools, alert)
             result["falsifier"] = check
             result["contradicting_ids"] = check["counterevidence_ids"]
@@ -257,6 +304,12 @@ class DemoInvestigator:
                     "citations": result["contradicting_ids"],
                 }
             )
+        tools.emit(
+            "Investigator",
+            "complete",
+            "Rule-based assessment ready for validation.",
+            kind="rules",
+        )
         return result
 
 
@@ -321,7 +374,9 @@ def investigate(
     cancel_event=None,
     max_bytes=65536,
     seed_event_id=None,
+    question="What does the observed alert and related flow evidence support?",
     synthetic=True,
+    activity_callback=None,
 ):
     if provider is None:
         provider = DemoInvestigator()
@@ -338,16 +393,18 @@ def investigate(
         clock,
         cancel_event,
         max_bytes,
+        activity_callback,
     )
     warnings = [
         "Synthetic data; rule-based verdicts are not a measurement of LLM performance."
         if synthetic
-        else "External telemetry; rule-based findings require analyst review and do not establish compromise.",
+        else "External telemetry; machine findings require analyst review and do not establish compromise.",
         "Log text and enrichment are untrusted. Claims use normalized telemetry fields.",
         "Evidence retrieval is capped at 100 rows per query; results may be incomplete.",
     ]
     run_status = "COMPLETED"
     tools.requested_seed_id = seed_event_id
+    tools.question = question
     try:
         tools.check_cancelled()
         report = Orchestrator().investigate(tools, provider, falsification)
@@ -376,6 +433,8 @@ def investigate(
             },
         }
     report.update(getattr(tools, "role_activity", {}))
+    if hasattr(tools, "provider_activity"):
+        report["provider_activity"] = tools.provider_activity
     if (
         not synthetic
         and type(provider) is DemoInvestigator
@@ -394,6 +453,11 @@ def investigate(
         warnings.append(
             "Evidence payload byte cap reached; only delivered records may be cited."
         )
+    tools.emit(
+        "Orchestrator",
+        "working",
+        "Validating report structure and checking citations against retrieved evidence.",
+    )
     validate_report(report, tools)
     for index, claim in enumerate(report["claims"], 1):
         claim.setdefault("claim_id", f"claim-{index}")

@@ -10,7 +10,7 @@ not completion of the intended system.
 | M1 | Offline rule-based Investigator/Falsifier, structured citation validation, deterministic reports and offline-verifiable bundles. Parser archives and full claim semantics pending. |
 | M2 | Bounded append-only ingestion, replay, checkpoints, UI and exports retained. Background runs/cancellation and saved-report loading added. |
 | M3 | Canonical directory lock, owning database worker, additive checksummed migration, materialized interpretations/snapshots, interrupted-run recovery and offline backup/restore implemented. Bounded rename recovery, archive matching and pinned-evidence retention added; native macOS verified. Exhaustive source recovery and Docker execution pending. |
-| M4 | Deterministic triage/correlation connected through Orchestrator with one shared budget; case revisions and successor history persisted. Optional structured model adapter and durable single-task queue added; live model validation and full case editing pending. |
+| M4 | Deterministic triage/correlation connected through Orchestrator with one shared budget; case revisions and successor history persisted. GUI-configurable OpenAI-compatible tool-using Investigator/Falsifier, capability probe and durable single-task queue added; live model validation and full case editing pending. |
 | M5–M6 | Research harness and experiments pending. Dataset/model downloads and training excluded by AGENTS.md. |
 | M7–M8 | Unix stream input, interactive operational visuals and isolated finite-backlog benchmark added. Additional sensors, curated retrieval and sustained workload profiling pending. |
 
@@ -43,3 +43,18 @@ Operational visual summaries use a labelled 250/1,000/5,000-record window and do
 change provider retrieval/citation authority. README documents short launches.
 
 No packet capture, live network model calls or authentic dataset downloads were added.
+
+The operational sidebar now configures endpoint, Investigator/Falsifier models,
+in-memory credentials, strict-schema/JSON-object output and provider limits.
+Model roles can request typed read-only queries; software validates arguments,
+enforces scope/budgets and checks citations. A synthetic capability probe runs only
+on explicit click. Profiles last for the runtime process. This implements another
+slice of Sections 13/15; prompt-file versioning, schema repair, cost reservation,
+redaction profiles and live server compatibility remain pending.
+
+Live workflow visibility now covers rule-based roles and model roles, actual
+handoffs, model-response waits and typed retrieval. A bounded process-local activity
+snapshot drives an independent read-only GUI refresh; completion, cancellation,
+failure and budget exhaustion stop the running indicator. Saved reports include
+the activity through report preparation. No synthetic delays or extra workers
+were introduced.

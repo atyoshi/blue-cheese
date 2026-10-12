@@ -70,7 +70,13 @@ def markdown_report(report):
         "",
         "```json",
         json.dumps(
-            {"tools": report["tool_activity"], "budget": report["budget"]}, indent=2
+            {
+                "tools": report["tool_activity"],
+                "budget": report["budget"],
+                "provider_activity": report.get("provider_activity"),
+                "workflow_activity": report.get("workflow_activity"),
+            },
+            indent=2,
         ),
         "```",
     ]

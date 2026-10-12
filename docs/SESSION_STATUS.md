@@ -1,5 +1,73 @@
 # Current verification — 2026-10-12
 
+Interactive terminal follow-up: `./blue-cheese --cli`, `./bluecheese --cli` and
+`bluecheese chat` open the operational terminal. Existing GUI defaults and legacy
+subcommands remain. Slash commands and common task requests cover EVE import/follow,
+triage, network summaries, investigations and saved reports. Tasks default to
+declined approval; an approved investigation covers bounded agent reads/model
+requests and report persistence. Actual activity events stream during the run;
+Ctrl-C requests cooperative cancellation. Unknown chat uses separately approved,
+single-turn model requests without evidence/tools and only suggests commands.
+Terminal control characters in data/model output are escaped.
+
+Provider settings accept a selected JSON file (`config.example.json` documents
+the fields), flags overriding that file, or existing environment configuration
+when no settings are supplied. `/config` prompts for a path, `/rules` restores
+offline rules and `/test` approves synthetic capability probes. Local/remote URL
+policy and schema/citation validation reuse the existing provider. One-shot EVE
+imports are capped at 16 MiB and use bounded ingestion/quarantine/cursors with
+source identity; unfinished lines remain uncommitted. Automatic investigations
+remain disabled. The same state lock excludes simultaneous GUI/terminal use.
+
+Measured checks: **95 passed in 8.01 seconds**, Ruff and diff whitespace passed.
+Nine new tests include an actual launcher/config/flag session, declined tasks,
+offline investigation/report persistence, source identity/duplicate positions,
+quarantine/cursor resume, secret-safe config errors and untrusted terminal output.
+The full suite requires execution outside the sandbox for existing Unix socket
+tests. Live OpenAI-compatible server behavior remains unverified; no dependencies,
+real model calls or downloads were added. README includes launch/workflow details.
+
+Live activity follow-up: every operational workspace now shows the current agent
+role/action, elapsed time and a handoff timeline. Rule policies, model-response
+waits and evidence tools are labelled separately. Actual execution emits bounded
+events under the runtime lock; a read-only one-second UI fragment observes them
+independently of telemetry refresh. The latest run retains at most 128 events.
+Saved reports include activity through report preparation. No extra workers,
+artificial delays, model calls on rerender or private reasoning display were added.
+Completion, cancellation, failed steps and budget exhaustion stop the active view.
+
+Latest checks: `.venv/bin/pytest -q` — **86 passed in 6.95 seconds**;
+`.venv/bin/ruff check src tests` and `git diff --check` passed. New deterministic
+tests pause a scripted model transport to inspect live waits/handoffs and GUI
+rerenders, then cancel it; they also verify saved traces, reset isolation, failed
+and incomplete terminal states, bounded history and stopped elapsed time.
+
+Agent/provider follow-up: the operational sidebar now exposes **Agents and model
+endpoint** with an OpenAI-compatible base/full URL, Investigator and optional
+separate Falsifier model, in-memory API key or environment reference, remote HTTPS
+opt-in, output mode and call/token/timeout limits. Settings last for the runtime
+process and cannot change during active/pending work. Explicit connection testing
+uses synthetic data to check tool calling and structured output for each model.
+GUI rerenders never call models or start investigations.
+
+The model Investigator and Falsifier can request allowlisted typed evidence queries
+through the existing snapshot-bound broker. They share tool/time budgets and a
+six-attempt default provider cap; argument, output-schema and retrieval-citation
+validation remain software-enforced. The case question now enters model context.
+Role/model attempts and available token usage appear in completed/cancelled/incomplete
+reports and their GUI/Markdown audits. Triage/correlation/report assembly remain
+deterministic; the presentation demo remains offline. The original one-call adapter
+is retained through `BLUECHEESE_MODEL_MODE=summary`.
+
+Measured follow-up checks: `.venv/bin/pytest -q` — **82 passed in 6.45 seconds**;
+`.venv/bin/ruff check src tests` and `git diff --check` passed. New scripted tests
+cover model acquisition, critic revision, persisted successful attempts, invented
+citations, forbidden tools/scope arguments, shared budgets, cancellation,
+capability probing and GUI apply/test/rerender/rule fallback. No network calls,
+models, datasets or dependencies were added. Live server compatibility, prompt-file
+versioning, schema repair, cost reservation and configurable redaction profiles
+remain unverified or pending; this is not full master-plan completion.
+
 Target: one customer's on-prem SOC with multiple analysts. Access controls are
 still pending; see [commercial release gates](RELEASE_GATES.md).
 
