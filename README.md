@@ -50,6 +50,9 @@ URL printed in the terminal**, normally http://127.0.0.1:8501. If the default po
 is busy, Streamlit tries the next available port. Leave the terminal running and
 stop the app with **Ctrl+C**. Closing the browser tab does not stop the app.
 
+`./blue-cheese` is a compatibility wrapper for `./bluecheese`; both accept the
+same arguments and launch the same application.
+
 The console initially has no telemetry. It does not load demonstration scenarios
 or start Suricata automatically. Install/configure Suricata separately if you
 want live sensor output; an existing EVE file needs no running sensor.
@@ -103,6 +106,11 @@ show the latest report
 /quit
 ```
 
+Lines without a leading `/` are natural-language requests: offline rules route
+them locally, while a configured model proposes a task for approval. Slash
+commands select tasks directly; the equivalents above are `/triage`, `/network`,
+`/investigate whether the alert is supported by the flows`, and `/report`.
+
 | Terminal command | What it does |
 | --- | --- |
 | `/import PATH` | Import a static EVE file with resumable cursors |
@@ -133,6 +141,35 @@ following. Automatic investigations stay disabled. `/triage` reads at most 20
 alerts; `/network` describes at most 1,000 recent records and performs no scan.
 `/report RUN_ID` reads a historical report; `/history` lists run IDs. Reports
 and telemetry are displayed as escaped JSON, including original evidence IDs.
+`/status` shows the active ingestion source, not the last imported file; after
+a one-time `/import`, `source: null` is expected unless a follower is running.
+
+### Start a local model server (optional)
+
+If you do not have a model server, start with the upstream
+[llama.cpp build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)
+or its [prebuilt releases](https://github.com/ggml-org/llama.cpp/releases).
+Obtain a compatible instruction-tuned GGUF model from its publisher, choosing a
+size that fits your machine's memory. With `llama-server` installed and the model
+downloaded, a local-only starting command is:
+
+```bash
+llama-server -m /absolute/path/model.gguf --alias bluecheese-local --host 127.0.0.1 --port 8080 --jinja
+```
+
+Keep that server running. In another terminal, from this checkout:
+
+```bash
+./bluecheese --cli --endpoint http://127.0.0.1:8080/v1 --model bluecheese-local --timeout 300
+```
+
+Enter `/test` and approve the synthetic capability probes before investigating.
+The model and chat template must support forced tool calls and structured JSON;
+serving a GGUF alone does not guarantee compatibility. See the upstream
+[server and tool-calling guide](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
+for template and hardware options. This is setup guidance, not a newly tested
+deployment; the one live deployment tested here is recorded in
+[CLI model validation](docs/CLI_MODEL_VALIDATION.md).
 
 For an OpenAI-compatible server, copy [config.example.json](config.example.json)
 to `config.json`, set its endpoint and model, then launch:
@@ -243,6 +280,8 @@ Connect the absolute path printed by doctor as the EVE file. This small bundled
 fixture is synthetic; its old timestamps are expected. It lets you exercise the
 same controls without generating network traffic. For clean/poisoned comparisons
 and paced synthetic replay, use the [separate presentation](#synthetic-presentation-and-offline-bundles).
+To explore the included `bad.pcap` capture instead, follow the
+[PCAP conversion steps](#preserved-cli-and-legacy-web-ui); that path requires Suricata.
 
 ## Connect telemetry
 
@@ -309,6 +348,22 @@ when the receiver is unavailable or congested; monitor the sensor's drop statist
 Use file tail for persistent sensor-side buffering and easier restart recovery.
 
 ### Produce EVE with Suricata
+
+Suricata is required for PCAP conversion and live capture; importing an existing
+EVE file needs no Suricata installation. On Debian/Ubuntu, install the distribution
+package and check that the executable is on PATH:
+
+```bash
+sudo apt-get update
+sudo apt-get install suricata
+suricata --build-info
+```
+
+Package versions vary. For current stable packages and other operating systems,
+follow the official [installation guide](https://docs.suricata.io/en/latest/install.html)
+and [quickstart](https://docs.suricata.io/en/latest/quickstart.html), including
+`suricata-update` for detection rules. The test fixture below supplies its own
+rules; a real capture needs rules and network settings appropriate to your sensor.
 
 Configure Suricata with detection rules and EVE `alert` and `flow` outputs. For
 example, on a Linux sensor, adjust the configuration path and capture interface:
@@ -467,6 +522,12 @@ paths and configuration offline; it does not validate EVE contents, contact a
 model, start capture or guarantee sensor delivery. `database_initialized: false`
 is expected before the first GUI launch, and Suricata need not be on this machine
 when reading an existing file.
+
+Doctor reads provider settings from `BLUECHEESE_MODEL_*` and related environment
+variables only. It does not load `config.json`, accept `--config`, or inspect the
+GUI's selected provider. To validate a JSON provider file, launch
+`./bluecheese --cli --config config.json` and use `/test` for approved live
+capability checks. Doctor reporting `offline rules` does not invalidate that file.
 
 ### Back up and restore the operational database
 
@@ -704,6 +765,30 @@ PATH (or use `--suricata /path/to/suricata`):
 The bundled PCAP is synthetic. A detection-rule match alone does not prove
 compromise. Use subcommand `--help` for further options.
 
+The repository root also includes `bad.pcap` (about 49 MB). Its name is not a
+verdict; inspect the resulting evidence. To import it into the legacy SQLite
+workflow, using your installed sensor configuration and rules:
+
+```bash
+./bluecheese --data-dir capture-data import-pcap bad.pcap --config /etc/suricata/suricata.yaml
+./bluecheese --data-dir capture-data alerts
+```
+
+For the operational GUI or agent terminal, first convert the capture to EVE in
+a new output directory (adjust the configuration path for your installation):
+
+```bash
+mkdir -p telemetry/bad-capture
+suricata -r "$PWD/bad.pcap" -c /etc/suricata/suricata.yaml -l "$PWD/telemetry/bad-capture"
+./bluecheese
+```
+
+Select **EVE file** and connect the absolute path to
+`telemetry/bad-capture/eve.json`. Enable EVE `alert` and `flow` outputs in the
+sensor configuration. Offline `-r` processing reads packets from disk; it does
+not transmit them. Use a fresh output directory for each conversion. The legacy
+PCAP import stores evidence separately from the operational GUI database.
+
 ## Development checks and remaining work
 
 Install the pinned development dependencies before running checks:
@@ -713,6 +798,15 @@ Install the pinned development dependencies before running checks:
 .venv/bin/python -m ruff check src tests
 .venv/bin/python -m pytest -q --cov=bluecheese --cov-report=term-missing
 .venv/bin/python -m pip check
+```
+
+Allow at least 1 GB of free temporary space for tests; one fresh-user Linux run
+used about 400 MB for DuckDB files. If `/tmp` is a small tmpfs and pytest reports
+`No space left on device`, choose a temporary directory on a larger filesystem:
+
+```bash
+mkdir -p "$HOME/bluecheese-test-tmp"
+TMPDIR="$HOME/bluecheese-test-tmp" .venv/bin/python -m pytest -q
 ```
 
 Tests use temporary state, offline fixtures and deterministic polling, with no
