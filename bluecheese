@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_path=$(readlink -f -- "${BASH_SOURCE[0]}")
-project_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
+project_dir=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent)' "${BASH_SOURCE[0]}")
+python_bin="$project_dir/.venv/bin/python"
+if [[ ! -x "$python_bin" ]]; then
+    python_bin=python3
+fi
+if ! "$python_bin" -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+    printf 'Blue Cheese requires Python 3.11+. Create .venv using the README instructions.\n' >&2
+    exit 1
+fi
 export PYTHONPATH="$project_dir/src${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 -m bluecheese.cli "$@"
+exec "$python_bin" -m bluecheese.cli "$@"

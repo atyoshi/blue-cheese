@@ -320,8 +320,13 @@ def investigate(
     clock=time.monotonic,
     cancel_event=None,
     max_bytes=65536,
+    seed_event_id=None,
+    synthetic=True,
 ):
-    provider = provider or DemoInvestigator()
+    if provider is None:
+        provider = DemoInvestigator()
+        if not synthetic:
+            provider.label = "Rule-based alert/flow review (policy v1; uncalibrated)"
     snapshot = store.snapshot()
     tools = EvidenceTools(
         store,
@@ -335,11 +340,14 @@ def investigate(
         max_bytes,
     )
     warnings = [
-        "Synthetic data; rule-based verdicts are not a measurement of LLM performance.",
+        "Synthetic data; rule-based verdicts are not a measurement of LLM performance."
+        if synthetic
+        else "External telemetry; rule-based findings require analyst review and do not establish compromise.",
         "Log text and enrichment are untrusted. Claims use normalized telemetry fields.",
         "Evidence retrieval is capped at 100 rows per query; results may be incomplete.",
     ]
     run_status = "COMPLETED"
+    tools.requested_seed_id = seed_event_id
     try:
         tools.check_cancelled()
         report = Orchestrator().investigate(tools, provider, falsification)
@@ -368,6 +376,20 @@ def investigate(
             },
         }
     report.update(getattr(tools, "role_activity", {}))
+    if (
+        not synthetic
+        and type(provider) is DemoInvestigator
+        and tools.retrieved
+        and report.get("supporting_ids")
+    ):
+        report["hypothesis"] = (
+            "The alerted network activity warrants analyst review; network evidence alone cannot establish its purpose."
+        )
+        if report["verdict"] == "BENIGN_CONFOUNDER":
+            report["verdict"] = "UNCERTAIN"
+            report["unresolved"].append(
+                "Zero-byte closed flows do not establish authorization or benign intent."
+            )
     if any(call["truncated"] for call in tools.activity):
         warnings.append(
             "Evidence payload byte cap reached; only delivered records may be cited."

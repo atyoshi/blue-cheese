@@ -8,10 +8,13 @@ from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
+from bluecheese.adapters.model_provider import configured_provider
 from bluecheese.agents.investigator import investigate
 from bluecheese.agents.orchestrator import Orchestrator
 from bluecheese.application.ingestion import EveFollower
+from bluecheese.application.rotating_source import RotatingEveFollower
 from bluecheese.application.store_worker import StoreWorker, WorkerStore
+from bluecheese.application.unix_stream import UnixStreamFollower
 
 SCENARIOS = {
     "suspicious": ("clean", "poisoned"),
@@ -21,9 +24,10 @@ SCENARIOS = {
 
 
 class DemoRuntime:
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, *, load_fixtures=True):
         self.state_dir = Path(state_dir)
         self.lock = threading.RLock()
+        self.provider = None if load_fixtures else configured_provider()
         self.database = StoreWorker(self.state_dir / "evidence.duckdb")
         self.store = WorkerStore(self.database)
         self.orchestrator = Orchestrator()
@@ -32,6 +36,7 @@ class DemoRuntime:
         self.active_run_id = None
         self.investigation_runs = 0
         self.closed = False
+        self.closing = False
         self.worker = None
         self.stop_event = threading.Event()
         self.follower = None
@@ -40,15 +45,20 @@ class DemoRuntime:
         self.last_ingest = None
         self.source_status = "Stopped"
         self.worker_starts = 0
+        self.automatic = False
         try:
             self.replay_lines = (
-                files("bluecheese.data")
-                .joinpath("suspicious-clean.jsonl")
-                .read_bytes()
-                .splitlines(keepends=True)
+                (
+                    files("bluecheese.data")
+                    .joinpath("suspicious-clean.jsonl")
+                    .read_bytes()
+                    .splitlines(keepends=True)
+                )
+                if load_fixtures
+                else []
             )
             with self.lock:
-                for scenario, variants in SCENARIOS.items():
+                for scenario, variants in SCENARIOS.items() if load_fixtures else ():
                     for variant in variants:
                         self.database.call(
                             "import_file",
@@ -81,6 +91,7 @@ class DemoRuntime:
         *,
         question="What does the observed alert and related flow evidence support?",
         parent_run_id=None,
+        seed_event_id=None,
         **settings,
     ):
         if not self.run_lock.acquire(blocking=False):
@@ -88,11 +99,16 @@ class DemoRuntime:
         run = None
         try:
             with self.lock:
-                if self.closed:
+                if self.closed or self.closing:
                     raise RuntimeError("Runtime is closed")
                 self.cancel_event.clear()
                 run = self.database.call(
-                    "create_run", scenario, variant, question, parent_run_id
+                    "create_run",
+                    scenario,
+                    variant,
+                    question,
+                    parent_run_id,
+                    seed_event_id=seed_event_id,
                 )
                 self.active_run_id = run["run_id"]
                 self.investigation_runs += 1
@@ -100,8 +116,26 @@ class DemoRuntime:
                 self.database, run["snapshot_id"], run["snapshot"], run["run_id"]
             )
             report = investigate(
-                scoped, scenario, variant, cancel_event=self.cancel_event, **settings
+                scoped,
+                scenario,
+                variant,
+                cancel_event=self.cancel_event,
+                seed_event_id=seed_event_id,
+                synthetic=scenario in SCENARIOS
+                or (scenario == "live" and variant == "replay"),
+                **{"provider": self.provider, **settings},
             )
+            if scenario == "live" and variant == "external":
+                report["source_incidents"] = self.database.call("source_incidents")
+                if report["source_incidents"]:
+                    report["warnings"].append(
+                        "Source incidents are recorded for this state directory; telemetry coverage is incomplete or uncertain. Inspect sensor health before relying on absence of activity."
+                    )
+                    if report["verdict"] in ("BENIGN", "BENIGN_CONFOUNDER"):
+                        report["verdict"] = "UNCERTAIN"
+                        report["unresolved"].append(
+                            "Resolve source continuity incidents before accepting a benign interpretation."
+                        )
             self.orchestrator.complete(
                 self.database,
                 run,
@@ -123,7 +157,7 @@ class DemoRuntime:
 
     def begin_run(self, scenario, variant, **settings):
         with self.lock:
-            if self.closed:
+            if self.closed or self.closing:
                 raise RuntimeError("Runtime is closed")
             if self.active_run_id or (self.pending_run and not self.pending_run.done()):
                 raise RuntimeError(
@@ -141,38 +175,76 @@ class DemoRuntime:
             self.cancel_event.set()
             return True
 
-    def start(self, path=None, replay=True, interval=0.5):
+    def start(
+        self,
+        path=None,
+        replay=True,
+        interval=0.5,
+        recover_rotation=False,
+        unix_stream=False,
+    ):
         if interval <= 0:
             raise ValueError("Poll interval must be positive")
+        if unix_stream and replay:
+            raise ValueError("Unix streaming cannot be combined with synthetic replay")
         with self.lock:
-            if self.closed:
+            if self.closed or self.closing:
                 raise RuntimeError("Runtime is closed")
             if self.worker and self.worker.is_alive():
                 return False
             self.replay = replay
             if replay:
+                if not self.replay_lines:
+                    raise ValueError(
+                        "Synthetic replay is disabled in the operational console"
+                    )
                 spool = Path(
                     os.environ.get("BLUECHEESE_REPLAY", str(self.state_dir / "replay"))
                 )
                 spool.mkdir(parents=True, exist_ok=True)
                 path = spool / "eve.jsonl"
                 path.touch(exist_ok=True)
-            self.follower = self.database.apply(
-                lambda store: EveFollower(
-                    store, path, "live", "replay" if replay else "external"
+            if self.follower and hasattr(self.follower, "close"):
+                self.database.apply(lambda store: self.follower.close())
+            self.follower = None
+            try:
+                self.follower = self.database.apply(
+                    lambda store: (
+                        UnixStreamFollower(store, path, self.state_dir)
+                        if unix_stream
+                        else RotatingEveFollower(store, path)
+                        if recover_rotation and not replay
+                        else EveFollower(
+                            store, path, "live", "replay" if replay else "external"
+                        )
+                    )
                 )
-            )
+            except (OSError, RuntimeError, ValueError) as error:
+                self.source_status = str(error)
+                self.database.call("record_source_incident", str(path), 0, str(error))
+                self.stop_event.set()
+                return False
             self.stop_event.clear()
             self.source_status = (
                 "Running replay (not packet capture)"
                 if replay
                 else "Following append-only EVE file"
             )
+            if unix_stream:
+                self.source_status = "Following Unix stream"
             try:
                 self.poll_once()  # first tick is synchronous and inspectable
             except Exception as error:  # noqa: BLE001 - surface source failure to UI
                 self.source_status = str(error)
+                self.database.call(
+                    "record_source_incident",
+                    str(self.follower.path),
+                    self.follower.committed,
+                    str(error),
+                )
                 self.stop_event.set()
+                if isinstance(self.follower, UnixStreamFollower):
+                    self.database.apply(lambda store: self.follower.close())
                 return False
             self.worker = threading.Thread(
                 target=self._loop,
@@ -191,7 +263,15 @@ class DemoRuntime:
             except Exception as error:  # noqa: BLE001 - worker boundary records failure and stops
                 with self.lock:
                     self.source_status = str(error)
+                    self.database.call(
+                        "record_source_incident",
+                        str(self.follower.path),
+                        self.follower.committed,
+                        str(error),
+                    )
                 self.stop_event.set()
+                if isinstance(self.follower, UnixStreamFollower):
+                    self.database.apply(lambda store: self.follower.close())
                 break
 
     def poll_once(self):
@@ -207,7 +287,46 @@ class DemoRuntime:
             result = self.database.apply(lambda store: self.follower.poll_once())
             if result["bytes_read"]:
                 self.last_ingest = datetime.now(UTC).isoformat()
+            if self.automatic:
+                self.schedule_once()
             return result
+
+    def schedule_once(self):
+        """One durable task at a time; polling discovers commit-before-notify work."""
+        with self.lock:
+            if (
+                self.closed
+                or self.closing
+                or self.active_run_id
+                or (self.pending_run and not self.pending_run.done())
+            ):
+                return False
+            event_id = self.database.call("claim_work")
+            if not event_id:
+                return False
+            self.pending_run = self.executor.submit(self._run_work, event_id)
+            return True
+
+    def set_automatic(self, enabled):
+        with self.lock:
+            self.automatic = bool(enabled)
+
+    def _run_work(self, event_id):
+        try:
+            report = self.run(
+                "live",
+                "external",
+                seed_event_id=event_id,
+                max_calls=8,
+                max_seconds=30.0 if self.provider else 5.0,
+            )
+            self.database.call(
+                "finish_work", event_id, report["run_status"], report["run_id"]
+            )
+            return report
+        except Exception as error:
+            self.database.call("finish_work", event_id, "FAILED", error=str(error))
+            raise
 
     def status(self):
         with self.lock:
@@ -226,6 +345,21 @@ class DemoRuntime:
                 "worker_starts": self.worker_starts,
                 "investigation_runs": self.investigation_runs,
                 "active_run_id": self.active_run_id,
+                "investigation_pending": bool(
+                    self.pending_run and not self.pending_run.done()
+                ),
+                "automatic_investigation": self.automatic,
+                "rotation_recovery": isinstance(self.follower, RotatingEveFollower),
+                "rotation_notice": getattr(self.follower, "notice", None),
+                "source_mode": "unix_stream"
+                if isinstance(self.follower, UnixStreamFollower)
+                else "file",
+                "stream_state": self.follower.state
+                if isinstance(self.follower, UnixStreamFollower)
+                else None,
+                "stream_spool": str(self.follower.spool)
+                if isinstance(self.follower, UnixStreamFollower)
+                else None,
             }
 
     def stop(self):
@@ -236,14 +370,36 @@ class DemoRuntime:
         with self.lock:
             if worker and worker.is_alive():
                 raise RuntimeError("Ingestion worker has not stopped")
+            if (
+                isinstance(self.follower, UnixStreamFollower)
+                and not self.follower.closed
+            ):
+                if (
+                    self.follower.client is not None
+                    or self.follower.scanned != self.follower.committed
+                ):
+                    reason = "Stream receiver stopped; producer-side delivery completeness cannot be confirmed"
+                    if self.follower.scanned != self.follower.committed:
+                        reason += "; partial record retained in spool"
+                    self.database.call(
+                        "record_source_incident",
+                        str(self.follower.path),
+                        self.follower.committed,
+                        reason,
+                    )
+                self.database.apply(lambda store: self.follower.close())
             if self.source_status.startswith(("Running", "Following")):
                 self.source_status = "Stopped; committed cursor retained for resume"
 
     def close(self):
+        with self.lock:
+            self.closing = True
         self.cancel()
         self.stop()
+        self.executor.shutdown(wait=True)
         with self.run_lock, self.lock:
             if not self.closed:
+                if self.follower and hasattr(self.follower, "close"):
+                    self.database.apply(lambda store: self.follower.close())
                 self.closed = True
                 self.database.close()
-        self.executor.shutdown(wait=True)

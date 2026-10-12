@@ -8,6 +8,7 @@ import streamlit as st
 from bluecheese.agents.investigator import PROVIDER_LABEL
 from bluecheese.agents.reporting import json_report, markdown_report
 from bluecheese.application.demo_runtime import SCENARIOS, DemoRuntime
+from bluecheese.application.source_path import readable_eve_path
 
 
 @st.cache_resource
@@ -98,9 +99,11 @@ def live_panel(runtime, settings):
         ["Synthetic replay", "External append-only EVE file"],
         horizontal=True,
     )
-    path = st.text_input("External EVE path", value="/telemetry/eve.jsonl")
+    path = st.text_input("External EVE path", value=os.environ.get("BLUECHEESE_EVE", ""))
     if st.button("Start / resume ingestion"):
         try:
+            if mode != "Synthetic replay":
+                path = readable_eve_path(path)
             runtime.start(path=path, replay=mode == "Synthetic replay")
         except (OSError, ValueError) as error:
             st.error(str(error))

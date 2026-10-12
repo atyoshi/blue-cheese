@@ -18,10 +18,13 @@ class EveFollower:
         variant="replay",
         max_read=262144,
         max_line=65536,
+        source_key=None,
+        held_stream=None,
     ):
         self.store = store
         self.path = Path(path).resolve()
-        self.source = f"file:{self.path}"
+        self.source = source_key or f"file:{self.path}"
+        self.held_stream = held_stream
         self.scenario, self.variant = scenario, variant
         self.max_read, self.max_line = max_read, max_line
         cursor = store.db.execute(
@@ -34,8 +37,18 @@ class EveFollower:
         self.oversized = False
         self.line_start = self.committed
 
+    def _open(self):
+        if self.held_stream is not None:
+            stream = os.fdopen(os.dup(self.held_stream.fileno()), "rb")
+            stream.seek(0)
+            return stream
+        return self.path.open("rb")
+
+    def _current_stat(self):
+        return os.fstat(self.held_stream.fileno()) if self.held_stream is not None else self.path.stat()
+
     def poll_once(self):
-        with self.path.open("rb") as stream:
+        with self._open() as stream:
             stat = os.fstat(stream.fileno())
             identity = f"{stat.st_dev}:{stat.st_ino}"
             if self.identity and (
@@ -56,7 +69,7 @@ class EveFollower:
             self.identity = identity
             stream.seek(self.scanned)
             chunk = stream.read(self.max_read)
-            new_stat = self.path.stat()
+            new_stat = self._current_stat()
             if (
                 f"{new_stat.st_dev}:{new_stat.st_ino}" != identity
                 or new_stat.st_size < self.scanned + len(chunk)
@@ -115,7 +128,7 @@ class EveFollower:
                 self.line_start = self.scanned
                 self.pending = b""
                 self.oversized = False
-            with self.path.open("rb") as stream:
+            with self._open() as stream:
                 self.prefix_hash = hashlib.sha256(
                     stream.read(min(self.committed, 4096))
                 ).hexdigest()

@@ -20,3 +20,4 @@ telemetry/*
 !telemetry/.gitkeep
 build/
 dist/
+bluecheese-operations/

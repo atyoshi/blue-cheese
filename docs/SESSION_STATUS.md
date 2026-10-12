@@ -1,3 +1,43 @@
+# Current verification — 2026-10-12
+
+Target: one customer's on-prem SOC with multiple analysts. Access controls are
+still pending; see [commercial release gates](RELEASE_GATES.md).
+
+Operational entry point: `./bluecheese --data-dir bluecheese-operations gui`.
+The current verification instance runs at http://127.0.0.1:8502. Native GUI EVE
+paths now start empty unless configured; Docker's `/telemetry` is not a host
+default. Source preflight rejects missing files, directories and FIFOs before
+starting workers or recording coverage incidents. The presentation external-file
+control uses the same preflight. Doctor expands home paths and rejects incomplete
+schema histories. A file that disappears after validation still stops visibly.
+
+Measured checks: 71 tests passed on macOS/Python 3.13, including local Suricata
+integration and missing-path correction/reconnect; Ruff, dependency consistency
+and diff whitespace checks passed. Offline doctor confirmed the existing
+capture-derived EVE artifact is readable. Docker execution and live model endpoint
+compatibility remain unverified. Existing capture and SQLite evidence are preserved.
+
+The default `./bluecheese` command now launches the operational GUI. The sidebar
+selects file tail or a Unix stream receiver. A real local Suricata process sent
+fixture-derived alert/flow EVE records through the receiver in integration tests.
+Spooling precedes parsing; EOF, incomplete prior records and the 256 MiB quota
+stop visibly. Socket permissions are owner-only and only owned paths are unlinked.
+The Overview includes a zoomable UTC timeline, severity/protocol charts, a directed
+IP map, endpoint/connection drill-down and optional record explanations. Aggregates
+use a labelled bounded recent-record window, not fabricated telemetry.
+
+The operational UI now uses a compact dark/teal workspace, collapsible sensor
+setup, Activity/Connections/Evidence tabs, shared visual filters with reset,
+readable record labels, refresh controls and concise reports with intact exports,
+citations and retrieval audit. Native Firefox review identified accidental wheel
+zoom; time zoom now requires Shift. Expanded AppTest checks passed, including
+filter/navigation behavior and immediate socket button state. See
+[UI/UX review](UI_UX_REVIEW.md) for findings, measured checks and the unverified
+narrow-screen/accessibility/cross-browser work. This does not close SOC access
+control or commercial release gates.
+
+The following entries are historical and describe earlier revisions.
+
 # Session status — 2026-10-05
 
 All six implementation tasks completed and committed/pushed separately to `origin/main`.
@@ -26,7 +66,7 @@ Docker: `mkdir -p telemetry` then `docker compose up --build -d`; `docker compos
 
 Generated files in `demo-exports/`: `suspicious-clean.{json,md}`, `suspicious-poisoned.{json,md}`, `benign-clean.{json,md}`, `insufficient-clean.{json,md}`. They are local generated artifacts, ignored by Git. Recreate while app is stopped: `python -m bluecheese.application.export_demo --state bluecheese-data --out demo-exports`. Associated evidence persists in `bluecheese-data/evidence.duckdb`; do not run two processes on that DB.
 
-Expected on/default results: suspicious clean SUSPICIOUS (alert + five active flows), poisoned UNCERTAIN (alert + four active flows, one zero-byte closed contradiction), benign BENIGN_CONFOUNDER, insufficient UNCERTAIN. Falsifier off: both suspicious variants SUSPICIOUS. These describe this rule policy, not LLM performance. Full five-minute script: docs/DEMO.md. Planned product: Blue_Cheese_Codex_Build_Prompt.md.
+Expected on/default results: suspicious clean SUSPICIOUS (alert + five active flows), poisoned UNCERTAIN (alert + four active flows, one zero-byte closed contradiction), benign BENIGN_CONFOUNDER, insufficient UNCERTAIN. Falsifier off: both suspicious variants SUSPICIOUS. These describe this rule policy, not LLM performance. Full five-minute script: docs/DEMO.md. Planned product: Blue_Cheese_Master_Implementation_Plan.md.
 
 ## Limits / deferred
 

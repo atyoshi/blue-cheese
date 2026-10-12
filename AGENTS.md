@@ -1,6 +1,6 @@
 # Blue Cheese architecture and invariants
 
-Preserve the existing CLI (`cli.py`), PCAP/EVE import, SQLite evidence, triage and legacy web UI. The presentation entry point is `src/bluecheese/interfaces/demo.py`; exact launch/check commands are in README.md. Reference planned product: Blue_Cheese_Codex_Build_Prompt.md. Current handoff: docs/SESSION_STATUS.md; walkthrough: docs/DEMO.md.
+Preserve the existing CLI (`cli.py`), PCAP/EVE import, SQLite evidence, triage and legacy web UI. The presentation entry point is `src/bluecheese/interfaces/demo.py`; exact launch/check commands are in README.md. Operational GUI: `src/bluecheese/interfaces/console.py` via `bluecheese gui`. Reference planned product: Blue_Cheese_Master_Implementation_Plan.md. Current handoff: docs/SESSION_STATUS.md; walkthrough: docs/DEMO.md.
 
 Presentation components:
 - `domain/models.py` / `adapters/suricata.py`: shared canonical alert/flow normalization.

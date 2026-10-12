@@ -38,6 +38,9 @@ class EvidenceStore:
             self.db.execute(
                 "UPDATE runs SET status='INTERRUPTED', error='Application stopped before run completion' WHERE status='RUNNING'"
             )
+            self.db.execute(
+                "UPDATE investigation_work SET status='INTERRUPTED', error='Runtime stopped during scheduled work; retry explicitly' WHERE status='RUNNING'"
+            )
         except Exception:
             self.db.close()
             self.state_lock.close()
@@ -63,6 +66,12 @@ class EvidenceStore:
         event_id = hashlib.sha256(
             f"{scenario}\0{variant}\0{source}\0{position}\0".encode() + raw
         ).hexdigest()[:24]
+        if self.db.execute(
+            "SELECT 1 FROM retention_tombstones WHERE event_id=?", [event_id]
+        ).fetchone():
+            return None
+        if self.db.execute("SELECT 1 FROM evidence WHERE id=?", [event_id]).fetchone():
+            return event_id
         seq = self.snapshot() + 1
         self.db.execute(
             "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -82,6 +91,17 @@ class EvidenceStore:
                 normalized["dest_ip"],
             ],
         )
+        self.db.execute("UPDATE evidence_watermark SET seq=? WHERE singleton=1", [seq])
+        if (
+            scenario == "live"
+            and variant == "external"
+            and normalized["event_type"] == "alert"
+        ):
+            now = datetime.now(UTC).isoformat()
+            self.db.execute(
+                "INSERT INTO investigation_work VALUES (?, 'QUEUED', NULL, ?, ?, NULL) ON CONFLICT DO NOTHING",
+                [event_id, now, now],
+            )
         return event_id
 
     def import_file(self, path, scenario, variant):
@@ -102,9 +122,9 @@ class EvidenceStore:
             raise
 
     def snapshot(self):
-        return self.db.execute("SELECT coalesce(max(seq), 0) FROM evidence").fetchone()[
-            0
-        ]
+        return self.db.execute(
+            "SELECT seq FROM evidence_watermark WHERE singleton=1"
+        ).fetchone()[0]
 
     def query(
         self,
@@ -209,8 +229,263 @@ class EvidenceStore:
         ).fetchone()[0]
         return {"accepted": accepted, "invalid": invalid}
 
+    def browse_telemetry(
+        self,
+        scenario,
+        variant,
+        snapshot,
+        *,
+        event_type="alert",
+        ip="",
+        signature="",
+        severity=None,
+        before=None,
+        page=1,
+    ):
+        """Bounded analyst search, independent of provider retrieval/citations."""
+        if event_type not in ("all", "alert", "flow"):
+            raise ValueError("Unsupported event type")
+        clauses = ["scenario=?", "variant=?", "seq<=?"]
+        args = [scenario, variant, snapshot]
+        if before is not None:
+            clauses.append("seq<?")
+            args.append(int(before))
+        if event_type != "all":
+            clauses.append("event_type=?")
+            args.append(event_type)
+        if ip:
+            clauses.append("(src_ip=? OR dest_ip=?)")
+            args.extend([ip, ip])
+        if signature:
+            clauses.append(
+                "contains(lower(json_extract_string(normalized, '$.alert_signature')), lower(?))"
+            )
+            args.append(signature[:512])
+        if severity is not None:
+            clauses.append(
+                "try_cast(json_extract_string(normalized, '$.severity') AS INTEGER)=?"
+            )
+            args.append(int(severity))
+        where = " AND ".join(clauses)
+        total = self.db.execute(
+            "SELECT count(*) FROM evidence WHERE " + where, args
+        ).fetchone()[0]
+        page = max(1, min(int(page), max(1, (total + 49) // 50)))
+        rows = self.db.execute(
+            "SELECT seq,id,source,normalized FROM evidence WHERE "
+            + where
+            + " ORDER BY seq DESC LIMIT 50 OFFSET ?",
+            [*args, (page - 1) * 50],
+        ).fetchall()
+        return {
+            "total": total,
+            "page": page,
+            "rows": [
+                {
+                    "sequence": seq,
+                    "id": event_id,
+                    "source": source,
+                    **json.loads(normalized),
+                }
+                for seq, event_id, source, normalized in rows
+            ],
+        }
+
+    def visual_telemetry(self, scenario, variant, snapshot, limit=1000):
+        """Bounded normalized rows for analyst visuals, never provider retrieval."""
+        limit = max(1, min(int(limit), 5000))
+        rows = self.db.execute(
+            "SELECT seq,id,normalized FROM evidence "
+            "WHERE scenario=? AND variant=? AND seq<=? ORDER BY seq DESC LIMIT ?",
+            [scenario, variant, snapshot, limit],
+        ).fetchall()
+        return [
+            {"sequence": seq, "id": event_id, **json.loads(normalized)}
+            for seq, event_id, normalized in rows
+        ]
+
+    def quarantine_records(self, scenario, variant):
+        rows = self.db.execute(
+            "SELECT source,position,error FROM quarantine WHERE scenario=? AND variant=? ORDER BY source,position DESC LIMIT 50",
+            [scenario, variant],
+        ).fetchall()
+        return [dict(zip(("source", "position", "error"), row)) for row in rows]
+
+    def add_analyst_action(self, scenario, variant, run_id, actor, disposition, note):
+        if disposition not in (
+            "OPEN",
+            "INVESTIGATING",
+            "ESCALATED",
+            "CLOSED_BENIGN",
+            "CLOSED_INCIDENT",
+        ):
+            raise ValueError("Unknown analyst disposition")
+        if (
+            not isinstance(note, str)
+            or len(note) > 8192
+            or not actor.strip()
+            or len(actor) > 128
+        ):
+            raise ValueError("Actor and note exceed the allowed limits")
+        row = self.db.execute(
+            "SELECT r.case_id FROM runs r JOIN cases c ON r.case_id=c.case_id WHERE r.run_id=? AND c.scenario=? AND c.variant=?",
+            [run_id, scenario, variant],
+        ).fetchone()
+        if not row:
+            raise ValueError("Run outside selected scope")
+        self.db.execute(
+            "INSERT INTO analyst_actions VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                uuid4().hex,
+                row[0],
+                datetime.now(UTC).isoformat(),
+                actor,
+                disposition,
+                note,
+            ],
+        )
+
+    def analyst_history(self, scenario, variant, run_id):
+        rows = self.db.execute(
+            "SELECT a.created_at,a.actor,a.disposition,a.note FROM analyst_actions a JOIN runs r ON r.case_id=a.case_id JOIN cases c ON c.case_id=a.case_id WHERE r.run_id=? AND c.scenario=? AND c.variant=? ORDER BY a.created_at DESC LIMIT 100",
+            [run_id, scenario, variant],
+        ).fetchall()
+        return [
+            dict(zip(("created_at", "actor", "disposition", "note"), row))
+            for row in rows
+        ]
+
+    def record_source_incident(self, source, offset, diagnostic):
+        self.db.execute(
+            "INSERT INTO source_incidents VALUES (?, ?, ?, ?, ?)",
+            [
+                uuid4().hex,
+                source,
+                datetime.now(UTC).isoformat(),
+                offset,
+                str(diagnostic)[:4096],
+            ],
+        )
+
+    def source_incidents(self):
+        return [
+            dict(zip(("source", "created_at", "committed_offset", "diagnostic"), row))
+            for row in self.db.execute(
+                "SELECT source,created_at,committed_offset,diagnostic FROM source_incidents ORDER BY created_at DESC LIMIT 100"
+            ).fetchall()
+        ]
+
+    def claim_work(self):
+        self.db.execute("BEGIN")
+        try:
+            row = self.db.execute(
+                "SELECT event_id FROM investigation_work WHERE status='QUEUED' ORDER BY created_at,event_id LIMIT 1"
+            ).fetchone()
+            if row:
+                self.db.execute(
+                    "UPDATE investigation_work SET status='RUNNING',updated_at=? WHERE event_id=?",
+                    [datetime.now(UTC).isoformat(), row[0]],
+                )
+            self.db.execute("COMMIT")
+            return row[0] if row else None
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def finish_work(self, event_id, status, run_id=None, error=None):
+        if status not in ("COMPLETED", "FAILED", "INCOMPLETE", "CANCELLED"):
+            raise ValueError("Invalid scheduled work status")
+        self.db.execute(
+            "UPDATE investigation_work SET status=?,run_id=?,error=?,updated_at=? WHERE event_id=? AND status='RUNNING'",
+            [
+                status,
+                run_id,
+                str(error)[:4096] if error else None,
+                datetime.now(UTC).isoformat(),
+                event_id,
+            ],
+        )
+
+    def work_queue(self):
+        return [
+            dict(
+                zip(
+                    (
+                        "event_id",
+                        "status",
+                        "run_id",
+                        "created_at",
+                        "updated_at",
+                        "error",
+                    ),
+                    row,
+                )
+            )
+            for row in self.db.execute(
+                "SELECT * FROM investigation_work ORDER BY created_at DESC LIMIT 100"
+            ).fetchall()
+        ]
+
+    def retry_work(self, event_id):
+        self.db.execute(
+            "UPDATE investigation_work SET status='QUEUED',error=NULL,updated_at=? WHERE event_id=? AND status IN ('FAILED','INTERRUPTED','CANCELLED','INCOMPLETE')",
+            [datetime.now(UTC).isoformat(), event_id],
+        )
+
+    def retention(self, before_sequence, *, apply=False):
+        """Explicit bounded pruning; snapshots and work references pin evidence."""
+        cutoff = int(before_sequence)
+        if cutoff < 0:
+            raise ValueError("Retention cutoff must be nonnegative")
+        predicate = "e.seq<? AND NOT EXISTS (SELECT 1 FROM snapshot_evidence s WHERE s.id=e.id) AND NOT EXISTS (SELECT 1 FROM investigation_work w WHERE w.event_id=e.id)"
+        self.db.execute("BEGIN")
+        try:
+            total = self.db.execute(
+                "SELECT count(*) FROM evidence e WHERE " + predicate, [cutoff]
+            ).fetchone()[0]
+            rows = self.db.execute(
+                "SELECT id,seq FROM evidence e WHERE "
+                + predicate
+                + " ORDER BY seq LIMIT 1000",
+                [cutoff],
+            ).fetchall()
+            operation_id = uuid4().hex if apply else None
+            if apply:
+                now = datetime.now(UTC).isoformat()
+                for event_id, seq in rows:
+                    self.db.execute(
+                        "INSERT INTO retention_tombstones VALUES (?, ?, ?, ?)",
+                        [event_id, seq, now, operation_id],
+                    )
+                    self.db.execute("DELETE FROM evidence WHERE id=?", [event_id])
+                self.db.execute(
+                    "INSERT INTO retention_operations VALUES (?, ?, ?, ?)",
+                    [operation_id, now, cutoff, len(rows)],
+                )
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return {
+            "apply": apply,
+            "operation_id": operation_id,
+            "before_sequence": cutoff,
+            "eligible": total,
+            "batch_count": len(rows),
+            "batch_cap": 1000,
+            "removed": len(rows) if apply else 0,
+            "event_ids": [row[0] for row in rows],
+            "policy": "All snapshot members and work references remain pinned; report closure does not unpin.",
+        }
+
     def create_run(
-        self, scenario, variant, question, parent_run_id=None, max_members=10000
+        self,
+        scenario,
+        variant,
+        question,
+        parent_run_id=None,
+        max_members=10000,
+        seed_event_id=None,
     ):
         """Freeze current scoped interpretations and create durable pending work atomically."""
         if (
@@ -221,9 +496,10 @@ class EvidenceStore:
             raise ValueError(
                 "Case question must be nonempty and at most 4096 characters"
             )
-        case_id = hashlib.sha256(
-            json.dumps([scenario, variant, question]).encode()
-        ).hexdigest()[:24]
+        identity = [scenario, variant, question]
+        if seed_event_id:
+            identity.append(seed_event_id)
+        case_id = hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:24]
         snapshot_id, run_id = uuid4().hex, uuid4().hex
         created = datetime.now(UTC).isoformat()
         self.db.execute("BEGIN")
@@ -242,9 +518,34 @@ class EvidenceStore:
             ).fetchone()[0]:
                 raise ValueError("Case already has an active run")
             watermark = self.snapshot()
+            member_where = "scenario=? AND variant=? AND seq<=?"
+            member_args = [scenario, variant, watermark]
+            if seed_event_id:
+                seed = self.get_event(scenario, variant, watermark, seed_event_id)
+                if not seed or seed["normalized"]["event_type"] != "alert":
+                    raise ValueError("Select an alert in the current external scope")
+                n = seed["normalized"]
+                timestamp = datetime.fromisoformat(n["timestamp"])
+                if timestamp.tzinfo is None:
+                    raise ValueError(
+                        "Scoped investigation requires a timezone-aware alert"
+                    )
+                # Same source generation, directional endpoints and a five-minute window.
+                member_where += " AND source=? AND (id=? OR (src_ip=? AND dest_ip=? AND abs(epoch(try_cast(json_extract_string(normalized, '$.timestamp') AS TIMESTAMPTZ)) - ?) <= 300))"
+                member_args.extend(
+                    [
+                        seed["source"],
+                        seed_event_id,
+                        n["src_ip"],
+                        n["dest_ip"],
+                        timestamp.timestamp(),
+                    ]
+                )
             members = self.db.execute(
-                "SELECT id,normalized FROM evidence WHERE scenario=? AND variant=? AND seq<=? ORDER BY id LIMIT ?",
-                [scenario, variant, watermark, max_members + 1],
+                "SELECT id,normalized FROM evidence WHERE "
+                + member_where
+                + " ORDER BY id LIMIT ?",
+                [*member_args, max_members + 1],
             ).fetchall()
             if len(members) > max_members:
                 raise ValueError(
@@ -291,8 +592,9 @@ class EvidenceStore:
                 ],
             )
             self.db.execute(
-                "INSERT INTO snapshot_evidence SELECT ?, * FROM evidence WHERE scenario=? AND variant=? AND seq<=?",
-                [snapshot_id, scenario, variant, watermark],
+                "INSERT INTO snapshot_evidence SELECT ?, * FROM evidence WHERE "
+                + member_where,
+                [snapshot_id, *member_args],
             )
             self.db.execute(
                 "INSERT INTO runs VALUES (?, ?, ?, ?, 'RUNNING', ?, NULL, NULL, NULL)",
@@ -312,6 +614,7 @@ class EvidenceStore:
             "scope_question": question,
             "parent_run_id": parent_run_id,
             "created_at": created,
+            "seed_event_id": seed_event_id,
         }
 
     def record_tool(self, run_id, activity):

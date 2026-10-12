@@ -14,13 +14,23 @@ class Orchestrator:
 
     def investigate(self, tools, provider, falsification):
         alerts = tools.call("list_alerts", limit=20)
+        requested = getattr(tools, "requested_seed_id", None)
+        if requested:
+            seed = tools.call("get_event", event_id=requested)
+            if seed is None or seed["normalized"]["event_type"] != "alert":
+                raise ValueError("Requested alert is outside the run snapshot")
+            alerts = [seed] + [row for row in alerts if row["id"] != requested]
         triage = self.triage.triage_events(alerts)
         correlations = []
         tools.role_activity = {"triage": triage, "correlation": correlations}
         # One bounded seed group per demo run; other triggers remain inspectable.
         if triage["candidates"]:
             selected = triage["candidates"][0]
-            seed = next(row for row in alerts if row["id"] == selected["seed_ids"][0])
+            seed = next(
+                row
+                for row in alerts
+                if row["id"] == (requested or selected["seed_ids"][0])
+            )
             ip = seed["normalized"].get("src_ip")
             if ip:
                 related = tools.call("find_events_by_ip", ip=ip, limit=100)
@@ -49,7 +59,9 @@ class Orchestrator:
                 "Falsifier",
                 "Reporter",
             ],
-            "selection": "Highest triage priority, then stable occurrence ID; one seed group per run.",
+            "selection": "Analyst-selected alert; same-source endpoint neighborhood within five minutes."
+            if requested
+            else "Highest triage priority, then stable occurrence ID; one seed group per run.",
             "automatic_response": False,
         }
         return report

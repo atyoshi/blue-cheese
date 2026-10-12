@@ -130,13 +130,13 @@ def test_old_schema_upgrade_unknown_version_and_interruption(tmp_path):
     with pytest.raises(ValueError, match="cap"):
         store.create_run("suspicious", "clean", "Question", max_members=1)
     assert len(store.list_runs("suspicious", "clean")) == 1
-    store.db.execute("UPDATE schema_migrations SET version=999")
+    store.db.execute("UPDATE schema_migrations SET version=999 WHERE version=1")
     store.close()
     with pytest.raises(RuntimeError, match="schema migration"):
         EvidenceStore(path)
     # Failed startup released its OS lock.
     db = duckdb.connect(str(path))
-    db.execute("UPDATE schema_migrations SET version=1")
+    db.execute("UPDATE schema_migrations SET version=1 WHERE version=999")
     db.close()
     store = EvidenceStore(path)
     store.close()

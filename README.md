@@ -1,6 +1,224 @@
-# Blue Cheese local presentation
+# Blue Cheese
 
-A local evidence-centered prototype: **raw Suricata EVE → normalization → DuckDB snapshots → triage/correlation → Investigator/Falsifier → cited JSON/Markdown**. All bundled scenarios are **synthetic**, not CTU-13, ATLAS or a real capture. The default **Deterministic demo provider** uses rules, needs no model/API key/network at runtime, and does not establish malicious intent or measure LLM superiority.
+Blue Cheese provides a local analyst GUI for Suricata network evidence: interactive
+traffic views, exact log inspection, bounded investigations and saved reports.
+Suricata performs packet capture and detection. Blue Cheese consumes its output.
+
+## Start here
+
+Already set up? From this repository, run:
+
+```bash
+./bluecheese
+```
+
+Open the **local URL printed in the terminal** (normally http://127.0.0.1:8501;
+if that port is busy, the app tries the next available port). No activation
+command, model key or long launch
+flags are required. The launcher uses this checkout's `.venv` automatically and
+opens the operational console with state in `./bluecheese-operations`. It does
+not load synthetic scenarios or automatically start a sensor.
+
+For a fresh checkout, install once using **Python 3.11 or newer**:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock
+./bluecheese
+```
+
+Check `python3 --version` first; if your OS's `python3` is older than 3.11, use
+an installed newer interpreter for the first command, such as `python3.13`.
+Suricata must be installed and configured separately on your sensor.
+
+| Task | Command |
+|---|---|
+| Open the operational GUI | `./bluecheese` |
+| Use another port | `./bluecheese gui --port 8502` |
+| Check configuration with the GUI stopped | `./bluecheese doctor` |
+| Check an EVE file before connecting | `./bluecheese doctor --eve /path/to/eve.json` |
+| Choose another state directory | `./bluecheese --data-dir my-soc gui` |
+| Show all CLI commands | `./bluecheese --help` |
+
+To use `bluecheese` without the `./`, run `./install-command.sh` once and add
+`~/.local/bin` to your PATH if prompted. This links to the checkout; it does not
+copy the project. The preserved import/triage commands retain their legacy
+`bluecheese-data` default; GUI, doctor and retention default to `bluecheese-operations`.
+Stop the GUI with **Ctrl+C** in its terminal. One process may use a state directory
+at a time, including diagnostic/export commands.
+
+## Choose your telemetry input in the GUI
+
+In the sidebar, choose **Telemetry input**:
+
+### EVE file: live tail or completed capture
+
+1. Select **EVE file**.
+2. Enter the existing file's absolute path **on the machine running Blue Cheese**.
+3. Click **Connect sensor**. Existing records load in bounded batches; new lines
+   appear automatically. This option is live when Suricata keeps writing the file.
+
+The path field starts empty unless `BLUECHEESE_EVE` is configured. Missing files,
+directories and named pipes are rejected with an explanation. `/telemetry/eve.json`
+is a Docker-mounted path, not a native macOS/Linux default.
+
+Rename-and-create rotation recovery is enabled by default. It drains the retained
+old descriptor for five seconds, then starts a new persisted generation. Matching
+archives named `eve.json.*` can be recovered on restart in a bounded directory
+search. Truncation, missing archives, partial rotated records and multiple rotations
+during draining stop ingestion visibly. Late writes to retired generations and
+undetectable copytruncate/regrowth are outside automatic recovery.
+
+### Unix stream socket: live EVE without an input log file
+
+1. Select **Unix stream**. Keep the suggested socket path or choose
+   an unused path in an existing directory. Unix socket paths must be short.
+2. Click **Connect sensor**. **Listening** means the receiver is ready; it does
+   not yet mean Suricata is connected.
+3. Open **Suricata stream configuration** in the sidebar. Copy its YAML into your
+   sensor's existing EVE output configuration, preserving capture settings and rules.
+4. Start/restart Suricata. **Streaming** means a producer has connected. The charts
+   populate as alert and flow records arrive.
+
+Blue Cheese is the listener; Suricata connects to it. This is EVE JSON transport,
+not Suricata's command/control socket. Use `filetype: unix_stream`, not `unix_dgram`.
+The GUI generates the exact `filename` socket path, avoiding manual path edits.
+Suricata documents these [EVE output modes](https://docs.suricata.io/en/suricata-8.0.3/output/eve/eve-json-output.html).
+
+Unix sockets work locally on Linux/macOS in the same filesystem namespace. The
+socket is restricted to its OS owner; run Suricata as that user or root. Native
+launch is the simplest option for this mode. The standard Docker telemetry mount
+is read-only and does not expose the container's socket to a host sensor.
+
+Received bytes are saved to a persistent receipt spool before parsing. They retain
+the same immutable evidence, triage, visualization and investigation workflow as
+file input. The current spool limit is **256 MiB per socket path**; reaching it stops
+visibly without deleting received evidence. Archive the stopped state and select a
+new state to continue. Producer disconnects stop ingestion and record a continuity
+incident; reconnect explicitly. Partial records are retained and are never merged
+with a new producer after restart: choose a new socket path/state when warned.
+Existing socket paths are never replaced automatically, including stale paths left
+by an abrupt process termination.
+
+Socket delivery is not an end-to-end loss guarantee: Suricata can drop events while
+the receiver is unavailable or congested. Monitor sensor output/drop statistics.
+For persistent sensor-side buffering and easier restart recovery, use live file tail.
+
+**Disconnect sensor** stops either input while preserving stored evidence. After
+an app restart, reconnect explicitly. Saved investigations survive restart.
+
+## Explore and learn
+
+The **Overview** uses only accepted external telemetry:
+
+- **Activity timeline:** compare alert and flow record counts over recorded event
+  time in UTC. Hover for values; Shift + scroll to zoom time, drag to pan,
+  double-click to reset. Normal scrolling leaves the chart scale unchanged.
+- **Severity and protocol charts:** compare sensor rule priority and observed
+  transport protocols. An alert is a lead, not proof of compromise.
+- **Connection map:** see source → destination IP relationships. Orange edges
+  contain alerts; blue edges contain only flow records in the displayed view.
+- **Endpoint focus and connection inspection:** filter the visuals, then inspect
+  the exact evidence behind a connection. Start an investigation from an alert.
+- **Learning mode:** explanations of IPs, ports, TCP/UDP, flows, alerts and the
+  investigation workflow. Switch it off for a compact analyst view. Record
+  explanations also appear on the Alerts and Flows pages.
+
+Visuals default to the latest 1,000 accepted records, with 250/5,000 options.
+Use the **Activity**, **Connections** and **Evidence** tabs to move from patterns
+to individual records. Endpoint and connection filters apply to all three tabs;
+**Reset focus** clears both. The endpoint filter applies within that recent-record window. The connection map
+shows up to 12 IP pairs; evidence detail shows up to 50 matching records. The
+Alerts/Flows pages provide full pagination. All limits are labelled in the GUI.
+Counts are log records, not unique sessions or packets. Old captures retain their
+original event times. A zero in a chart does not establish uninterrupted coverage.
+
+**Sensor connection** collapses when stored evidence is available. Expand it to
+connect or disconnect an input. Switch **Auto refresh** off while reading or
+editing; ingestion continues. Changing a filter or pressing **Refresh now** reloads
+the view. Evidence labels show the rule or flow state, endpoint pair and short ID;
+expand **Original evidence and normalized fields** for the exact stored record.
+
+Use **Investigations** for saved reports, citations, JSON/Markdown downloads,
+analyst notes and successor investigations. **Sensor health** shows source status,
+cursors, stream spool paths, quarantine reasons and continuity incidents.
+See the measured [UI/UX review](docs/UI_UX_REVIEW.md) for fixes and remaining checks.
+
+## Connect a sensor or exercise it with tcpreplay
+
+Suricata must run separately with detection rules and EVE `alert` and `flow`
+outputs enabled. For example, on a Linux sensor (adjust paths/interface):
+
+```bash
+mkdir -p telemetry
+sudo suricata -c /etc/suricata/suricata.yaml -i eth1 -l "$PWD/telemetry"
+```
+
+Point the console to that directory's `eve.json`. To exercise the sensor, run
+`sudo tcpreplay --intf1=eth1 capture.pcap` on an isolated replay host whose traffic
+the sensor sees. Blue Cheese consumes the sensor output; it does not capture packets,
+generate scans or manage Suricata. A completed EVE file can also be connected.
+
+This is a working **local, single-analyst console**, not a completed enterprise
+platform. There is no authentication/RBAC or multi-sensor management; the native
+launcher binds to localhost. Investigations use the bounded rule-based engine unless a model endpoint is explicitly configured.
+Select **Investigate selected alert** to freeze a same-source endpoint neighborhood
+within five minutes, or use the whole external scope. Table filters are independent
+of case membership. The 10,000-record cap applies to each frozen case snapshot.
+Automatic investigation is opt-in under Investigations and resets to off after
+restart; durable queued work remains available. Failed/interrupted tasks require
+explicit retry. Rule-based review does not infer benign intent from zero-byte flows.
+Only alert/flow records are currently accepted; other event types are quarantined.
+Use a separate state directory from the presentation, and one process per state.
+
+The presentation below remains a separate developer/evaluation workflow.
+
+
+## Operational checks, models and retention
+
+With the GUI stopped:
+
+```bash
+./bluecheese doctor --eve /absolute/path/eve.json
+./bluecheese retention --before-sequence 1000
+```
+
+`doctor` performs offline checks; it never contacts a model or launches capture.
+Retention previews at most 1,000 eligible records per batch. Add `--apply` only to
+execute that batch. All snapshot members and work references remain pinned, even
+when an analyst closes a case. Tombstones prevent reimporting removed occurrences,
+and the receipt sequence remains monotonic. Retention does not delete source logs,
+quarantine, reports or backups, and does not promise immediate filesystem shrinkage.
+The default policy deletes nothing.
+
+To use an existing local server implementing Chat Completions with strict JSON
+Schema responses, configure it before launch (no models are downloaded):
+
+```bash
+export BLUECHEESE_MODEL_ENDPOINT=http://127.0.0.1:8080/v1/chat/completions
+export BLUECHEESE_MODEL=your-served-model-id
+./bluecheese
+```
+
+If needed, set `BLUECHEESE_MODEL_API_KEY` through your environment/secret manager.
+Remote endpoints require HTTPS and `BLUECHEESE_ALLOW_REMOTE_MODEL=true`; enabling
+this transmits normalized observations, including IPs and detection signatures,
+to that configured endpoint. Exact raw logs are omitted. No remote provider is
+configured by default, and no real model endpoint was used for verification.
+Provider calls have one attempt, bounded input/output, no redirects, and a timeout
+limited by the remaining cooperative run deadline. Retrieval and countertests are
+software-controlled; a model cannot issue SQL or shell commands. Claims receive
+mechanical citation checks and remain semantically unassessed pending review.
+The adapter follows the [Chat Completions structured output contract](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
+Endpoint compatibility must be tested for the model/server you actually deploy.
+
+Schema migrations 2–5 add analyst actions, source incidents, durable work,
+retention metadata and file generations without rewriting existing evidence or
+snapshots. Existing schema-1 stores upgrade automatically under the state lock.
+Back up the stopped state before deploying an upgrade.
+
+See [release gates](docs/RELEASE_GATES.md) for what is tested and what remains
+necessary before any commercial deployment claim.
 
 ## Current status
 
@@ -11,13 +229,12 @@ backup/restore. A single database worker owns DuckDB; an exclusive state-directo
 lock prevents competing runtimes and exports. The legacy CLI/SQLite path remains
 available.
 
-The full master plan is **not complete**. Dependable local operation (M3) still
-needs rotation recovery, retention and platform verification; M4 has deterministic
-roles but no real model provider or automatic case scheduling. The latest recorded
-Linux checks are **45 passing tests**, Ruff and dependency checks, plus an
-export → backup → restore → export verification round trip. Docker execution and
-macOS remain unverified. See [verification details](docs/TESTING.md) and
-[measured handoff](docs/SESSION_STATUS.md).
+The full master plan is **not complete**. The operational slices now include
+bounded rename rotation recovery, retention, an optional structured model adapter
+and a durable automatic investigation queue. Native macOS and local Suricata
+integration have been tested. Docker execution, live model compatibility and
+multi-analyst access controls remain release gates. See
+[release gates](docs/RELEASE_GATES.md) and [verification details](docs/TESTING.md).
 
 The specification is [Blue Cheese Master Implementation Plan](Blue_Cheese_Master_Implementation_Plan.md).
 [ROADMAP.md](ROADMAP.md) tracks implemented slices and remaining gates;
@@ -75,9 +292,9 @@ docker compose logs -f bluecheese
 docker compose down
 ```
 
-`up` builds and starts the non-root app at **http://127.0.0.1:8501**; `logs` follows output; `down` stops it and retains volumes. Native and Docker use `requirements.lock`. Persistent evidence is in `evidence-state`, and the separate writable replay spool is in `replay-spool`. `./telemetry` mounts read-only at `/telemetry`; to follow an external growing EVE file, place it there and choose **External append-only EVE file**, path `/telemetry/eve.jsonl`, in Live. Set `BLUECHEESE_TELEMETRY=/absolute/source/directory` to mount another directory. No privileged mode or host networking is needed.
+`up` builds and starts the real-telemetry console in the non-root app at **http://127.0.0.1:8501**; `logs` follows output; `down` stops it and retains volumes. Native and Docker use `requirements.lock`. Persistent evidence is in `evidence-state`. `./telemetry` mounts read-only at `/telemetry`; to follow an external growing EVE file, place it there and enter path `/telemetry/eve.json`, in the sensor connection sidebar. Set `BLUECHEESE_TELEMETRY=/absolute/source/directory` to mount another directory. No privileged mode or host networking is needed.
 
-Compose configuration was validated. Build/launch is **unverified**: this session's user cannot access `/var/run/docker.sock`. Use native launch as the presentation fallback. The container intentionally excludes the legacy PCAP sensor path; it does not install Suricata.
+Compose configuration was validated. Build/launch is **unverified**: the Docker daemon is unavailable in this environment. Use native launch for the operational console. The container intentionally excludes the legacy PCAP sensor path; it does not install Suricata.
 
 ## Verify
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_path=$(readlink -f -- "${BASH_SOURCE[0]}")
-project_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
+project_dir=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent)' "${BASH_SOURCE[0]}")
 target_dir="$HOME/.local/bin"
 target="$target_dir/bluecheese"
 
@@ -11,7 +10,7 @@ if [[ -e "$target" && ! -L "$target" ]]; then
     printf 'Refusing to replace existing file: %s\n' "$target" >&2
     exit 1
 fi
-if [[ -L "$target" && "$(readlink -f -- "$target")" != "$project_dir/bluecheese" ]]; then
+if [[ -L "$target" && "$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "$target")" != "$project_dir/bluecheese" ]]; then
     printf 'Refusing to replace existing link: %s\n' "$target" >&2
     exit 1
 fi
