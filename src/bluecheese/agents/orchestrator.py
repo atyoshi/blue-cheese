@@ -60,7 +60,7 @@ class Orchestrator:
                 tools.emit(
                     "Orchestrator",
                     "handoff",
-                    "Sending the selected alert to Correlation for related evidence.",
+                    f"Selected {seed['normalized'].get('alert_signature') or 'alert'}: {ip} → {seed['normalized'].get('dest_ip')}. Sending to Correlation.",
                     handoff_to="Correlation",
                 )
                 tools.emit(
@@ -74,7 +74,7 @@ class Orchestrator:
                 tools.emit(
                     "Correlation",
                     "handoff",
-                    "Returning the bounded evidence group to Orchestrator.",
+                    f"Linked {len(correlations[-1]['member_ids'])} records for {ip}; excluded {correlations[-1]['excluded_count']} candidates.",
                     kind="rules",
                     handoff_to="Orchestrator",
                 )

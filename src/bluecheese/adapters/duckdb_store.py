@@ -506,12 +506,19 @@ class EvidenceStore:
         try:
             if parent_run_id:
                 parent = self.db.execute(
-                    "SELECT case_id,status FROM runs WHERE run_id=?", [parent_run_id]
+                    "SELECT r.case_id,r.status,s.scenario,s.variant,rc.seed_event_id FROM runs r JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=?",
+                    [parent_run_id],
                 ).fetchone()
-                if not parent or parent[0] != case_id or parent[1] == "RUNNING":
+                if (
+                    not parent
+                    or parent[1] == "RUNNING"
+                    or tuple(parent[2:4]) != (scenario, variant)
+                    or parent[4] != seed_event_id
+                ):
                     raise ValueError(
                         "Parent run must be a terminal run in the same case"
                     )
+                case_id = parent[0]
             if self.db.execute(
                 "SELECT count(*) FROM runs WHERE case_id=? AND status='RUNNING'",
                 [case_id],
@@ -600,6 +607,18 @@ class EvidenceStore:
                 "INSERT INTO runs VALUES (?, ?, ?, ?, 'RUNNING', ?, NULL, NULL, NULL)",
                 [run_id, case_id, snapshot_id, parent_run_id, created],
             )
+            self.db.execute(
+                "INSERT INTO run_context VALUES (?, ?)", [run_id, seed_event_id]
+            )
+            title = question[:180]
+            if seed_event_id:
+                title = f"{n.get('src_ip') or 'Unknown endpoint'} → {n.get('dest_ip') or '?'} · {n.get('alert_signature') or 'Alert review'}"[
+                    :240
+                ]
+            self.db.execute(
+                "INSERT INTO case_workspace VALUES (?, ?, '', 'OPEN', ?) ON CONFLICT DO NOTHING",
+                [case_id, title, created],
+            )
             self.db.execute("COMMIT")
         except Exception:
             self.db.execute("ROLLBACK")
@@ -661,7 +680,7 @@ class EvidenceStore:
 
     def list_runs(self, scenario, variant, limit=100):
         rows = self.db.execute(
-            "SELECT r.run_id,r.status,s.revision,r.created_at,r.parent_run_id,s.snapshot_id FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id WHERE s.scenario=? AND s.variant=? ORDER BY r.created_at DESC,r.run_id LIMIT ?",
+            "SELECT r.run_id,r.status,s.revision,r.created_at,r.parent_run_id,s.snapshot_id,s.question,w.title,w.owner,w.disposition FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE s.scenario=? AND s.variant=? ORDER BY r.created_at DESC,r.run_id LIMIT ?",
             [scenario, variant, max(1, min(int(limit), 100))],
         ).fetchall()
         return [
@@ -674,6 +693,10 @@ class EvidenceStore:
                         "created_at",
                         "parent_run_id",
                         "snapshot_id",
+                        "question",
+                        "title",
+                        "owner",
+                        "disposition",
                     ),
                     row,
                 )
@@ -683,7 +706,7 @@ class EvidenceStore:
 
     def get_run(self, scenario, variant, run_id):
         row = self.db.execute(
-            "SELECT r.status,r.report,r.error FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id WHERE r.run_id=? AND s.scenario=? AND s.variant=?",
+            "SELECT r.status,r.report,r.error,s.question,s.snapshot_id,s.watermark,r.case_id,w.title,w.owner,w.disposition,rc.seed_event_id,r.created_at FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=? AND s.scenario=? AND s.variant=?",
             [run_id, scenario, variant],
         ).fetchone()
         if not row:
@@ -691,13 +714,173 @@ class EvidenceStore:
         trace = self.db.execute(
             "SELECT activity FROM tool_calls WHERE run_id=? ORDER BY ordinal", [run_id]
         ).fetchall()
+        pairs = self.db.execute(
+            "SELECT coalesce(src_ip,'Unknown'),coalesce(dest_ip,'Unknown'),count(*) FROM snapshot_evidence WHERE snapshot_id=? GROUP BY 1,2 ORDER BY 3 DESC,1,2 LIMIT 4",
+            [row[4]],
+        ).fetchall()
+        record_count, pair_count = self.db.execute(
+            "SELECT count(*),count(DISTINCT (src_ip,dest_ip)) FROM snapshot_evidence WHERE snapshot_id=?",
+            [row[4]],
+        ).fetchone()
         return {
+            "question": row[3],
+            "snapshot_id": row[4],
+            "snapshot": row[5],
+            "case_id": row[6],
+            "title": row[7] or row[3],
+            "owner": row[8] or "",
+            "disposition": row[9] or "OPEN",
+            "seed_event_id": row[10],
+            "created_at": row[11],
+            "workflow_activity": self.run_events(scenario, variant, run_id),
+            "record_count": record_count,
+            "pair_count": pair_count,
+            "pairs": [
+                dict(zip(("source", "destination", "records"), pair)) for pair in pairs
+            ],
             "run_id": run_id,
             "status": row[0],
             "report": json.loads(row[1]) if row[1] else None,
             "error": row[2],
             "tool_activity": [json.loads(call[0]) for call in trace],
         }
+
+    def attention(self, scenario, variant, snapshot, page=1):
+        """Priority-ranked pages; no older alert is hidden by a latest-N cutoff."""
+        page = max(1, int(page))
+        total = self.db.execute(
+            "SELECT count(*) FROM evidence WHERE scenario=? AND variant=? AND seq<=? AND event_type='alert'",
+            [scenario, variant, snapshot],
+        ).fetchone()[0]
+        page = min(page, max(1, (total + 19) // 20))
+        rows = self.db.execute(
+            "SELECT id,source,normalized FROM evidence WHERE scenario=? AND variant=? AND seq<=? AND event_type='alert' "
+            "ORDER BY CASE try_cast(json_extract_string(normalized,'$.severity') AS INTEGER) WHEN 1 THEN 0 WHEN 2 THEN 1 WHEN 3 THEN 3 ELSE 2 END,seq DESC LIMIT 20 OFFSET ?",
+            [scenario, variant, snapshot, (page - 1) * 20],
+        ).fetchall()
+        from bluecheese.agents.triage import TriageAgent
+
+        events = [
+            dict(zip(("id", "source", "normalized"), (r[0], r[1], json.loads(r[2]))))
+            for r in rows
+        ]
+        groups = TriageAgent().triage_events(events)["candidates"]
+        by_id = {event["id"]: event for event in events}
+        for group in groups:
+            seed = by_id[group["seed_ids"][0]]
+            group["seed"] = seed
+            times = [
+                by_id[event_id]["normalized"].get("timestamp") or "Unknown"
+                for event_id in group["seed_ids"]
+            ]
+            group["first_seen"], group["last_seen"] = min(times), max(times)
+            recent = self.db.execute(
+                "SELECT r.run_id,r.status,s.watermark,w.disposition,w.owner FROM run_context rc JOIN runs r ON r.run_id=rc.run_id JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE rc.seed_event_id IN (SELECT unnest(?)) AND s.scenario=? AND s.variant=? ORDER BY r.created_at DESC LIMIT 1",
+                [group["seed_ids"], scenario, variant],
+            ).fetchone()
+            group["run_id"] = recent[0] if recent else None
+            group["run_status"] = recent[1] if recent else None
+            group["disposition"] = recent[3] if recent else None
+            group["owner"] = recent[4] if recent else None
+            group["new_alerts"] = (
+                self.db.execute(
+                    "SELECT count(*) FROM evidence WHERE scenario=? AND variant=? AND seq>? AND id IN (SELECT unnest(?))",
+                    [scenario, variant, recent[2], group["seed_ids"]],
+                ).fetchone()[0]
+                if recent
+                else 0
+            )
+        return {"total": total, "page": page, "groups": groups}
+
+    def record_activity(self, run_id, event):
+        self.db.execute(
+            "INSERT INTO run_activity VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+            [run_id, event["sequence"], json.dumps(event)],
+        )
+
+    def run_events(self, scenario, variant, run_id):
+        return [
+            json.loads(row[0])
+            for row in self.db.execute(
+                "SELECT a.event FROM run_activity a JOIN runs r ON r.run_id=a.run_id JOIN snapshots s ON s.snapshot_id=r.snapshot_id WHERE a.run_id=? AND s.scenario=? AND s.variant=? ORDER BY a.sequence DESC LIMIT 128",
+                [run_id, scenario, variant],
+            ).fetchall()
+        ][::-1]
+
+    def case_evidence(self, scenario, variant, run_id, limit=1000):
+        return [
+            {"id": row[0], "sequence": row[1], **json.loads(row[2])}
+            for row in self.db.execute(
+                "SELECT e.id,e.seq,e.normalized FROM snapshot_evidence e JOIN runs r ON r.snapshot_id=e.snapshot_id WHERE r.run_id=? AND e.scenario=? AND e.variant=? ORDER BY e.seq DESC LIMIT ?",
+                [run_id, scenario, variant, max(1, min(int(limit), 1000))],
+            ).fetchall()
+        ]
+
+    def save_case_decision(
+        self, scenario, variant, run_id, actor, owner, disposition, note
+    ):
+        if not isinstance(owner, str) or len(owner) > 128:
+            raise ValueError("Owner must be at most 128 characters")
+        self.db.execute("BEGIN")
+        try:
+            self.add_analyst_action(scenario, variant, run_id, actor, disposition, note)
+            row = self.db.execute(
+                "SELECT case_id FROM runs WHERE run_id=?", [run_id]
+            ).fetchone()
+            now = datetime.now(UTC).isoformat()
+            self.db.execute(
+                "INSERT INTO case_workspace VALUES (?, 'Evidence investigation', ?, ?, ?) ON CONFLICT(case_id) DO UPDATE SET owner=excluded.owner,disposition=excluded.disposition,updated_at=excluded.updated_at",
+                [row[0], owner.strip(), disposition, now],
+            )
+            self.add_analyst_action(
+                scenario,
+                variant,
+                run_id,
+                actor,
+                disposition,
+                "Assigned to: " + (owner.strip() or "Unassigned"),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def append_chat(self, scenario, variant, run_id, role, content):
+        if (
+            role not in ("user", "assistant")
+            or not isinstance(content, str)
+            or not 0 < len(content) <= 65536
+        ):
+            raise ValueError("Invalid chat message")
+        if (
+            run_id
+            and not self.db.execute(
+                "SELECT 1 FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id WHERE r.run_id=? AND s.scenario=? AND s.variant=?",
+                [run_id, scenario, variant],
+            ).fetchone()
+        ):
+            raise ValueError("Chat run outside selected scope")
+        self.db.execute(
+            "INSERT INTO workspace_chat VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                uuid4().hex,
+                scenario,
+                variant,
+                run_id,
+                role,
+                content,
+                datetime.now(UTC).isoformat(),
+            ],
+        )
+
+    def chat_history(self, scenario, variant, run_id=None):
+        return [
+            dict(zip(("role", "content", "created_at"), row))
+            for row in self.db.execute(
+                "SELECT role,content,created_at FROM workspace_chat WHERE scenario=? AND variant=? AND run_id IS NOT DISTINCT FROM ? ORDER BY created_at DESC LIMIT 40",
+                [scenario, variant, run_id],
+            ).fetchall()
+        ][::-1]
 
     def snapshot_manifest(self, snapshot_id):
         row = self.db.execute(

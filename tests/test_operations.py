@@ -133,6 +133,10 @@ def test_v1_migration_is_additive_and_checksums_are_preserved(tmp_path):
         "retention_tombstones",
         "retention_operations",
         "file_generations",
+        "case_workspace",
+        "run_context",
+        "run_activity",
+        "workspace_chat",
     ):
         db.execute("DROP TABLE " + table)
     db.execute("DELETE FROM schema_migrations WHERE version>1")
@@ -142,7 +146,7 @@ def test_v1_migration_is_additive_and_checksums_are_preserved(tmp_path):
         rows = store.db.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert len(rows) == 5
+        assert len(rows) == 6
         assert rows[0] == (1, hashlib.sha256(SQL.encode()).hexdigest())
     finally:
         store.close()
@@ -199,7 +203,7 @@ def test_doctor_no_network_no_initialization_and_conflicting_runtime(tmp_path):
         runtime.close()
     result = doctor(state)
     assert result["ok"]
-    assert result["schema_version"] == 5
+    assert result["schema_version"] == 6
 
 
 def test_source_preflight_rejects_directory_fifo_and_expands_home(

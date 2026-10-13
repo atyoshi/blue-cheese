@@ -81,10 +81,11 @@ def test_live_model_wait_handoffs_gui_rerenders_and_cancellation(tmp_path, monke
             lambda *args, **kwargs: runtime,
         )
         app = AppTest.from_file(str(APP), default_timeout=20).run()
+        app.sidebar.radio[0].set_value("Investigations").run()
         assert not app.exception
         assert any("Awaiting model response" in item.value for item in app.text)
-        assert any("Passed to Orchestrator" == item.value for item in app.text)
-        assert any("Model call" == item.value for item in app.caption)
+        assert any("prioritized group" in item.value for item in app.text)
+        assert any("model" in item.value for item in app.caption)
         app.run()
         assert len(calls) == 1
         assert runtime.status()["investigation_runs"] == 1

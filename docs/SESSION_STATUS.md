@@ -1,4 +1,50 @@
-# Current verification — 2026-10-12
+# Current verification — 2026-10-13
+
+The operational GUI now follows the small-security-team alert-to-decision milestone
+in [WORKFLOW.md](WORKFLOW.md): priority-ranked alert pages, named case targets,
+frozen evidence, contextual asynchronous chat, real per-run operations, cited
+findings, local assignment/disposition and retained history. Broader master-plan
+work remains deferred until this basic journey is useful and dependable.
+
+Schema migration 6 adds case workspace metadata, run seed context, incremental
+activity and local chat transcripts. Previous migration SQL/checksums remain
+unchanged. Accepted raw evidence and existing reports are retained. Runtime changes
+require one controlled process restart; browser refresh cannot update cached objects.
+
+Measured verification: **126 passed in 11.32 seconds**, outside the filesystem/network
+sandbox because Unix-socket tests require binding local sockets. Ruff and diff
+whitespace checks passed. Eight new workflow tests cover the synthetic analyst
+journey, snapshot/parent revision integrity, assignment and chat persistence,
+actual activity, fabricated-citation rejection, async duplicate/cancel behavior,
+priority paging and new-source activity without mutating old snapshots. Existing
+CLI, presentation, ingestion, operations and provider regressions remain included.
+
+Firefox review used isolated synthetic state on localhost port 8503. Home and
+named-case views were inspected at a narrower desktop window. It exposed squeezed
+card controls and counters; controls now occupy the card width, columns wrap,
+and cumulative counters are collapsed behind a status panel. The operational
+DB was not used for preview or test investigations. No real model or live packet
+capture was used in this verification. Detection quality, current real-model GUI
+compatibility, Docker and authenticated shared deployment are not established.
+
+Chat shares the CLI's schema-validated task planner. GUI context uses bounded
+normalized observations retrieved from the selected snapshot, current health,
+recorded operations and saved findings. Citation IDs are checked against actual
+chat retrieval; semantic support still requires review. Source/test changes and
+new investigations are concrete proposals with an explicit execution control.
+Local read commands remain available without a model. Assignment names are local
+attribution, not authenticated users. Activity and chat never dispatch work on
+rerender. New analysis remains bounded, and cancellation is cooperative.
+
+Operational restart: gracefully stopped the verified prior server and relaunched
+`./bluecheese --data-dir bluecheese-operations gui --port 8501`. Firefox confirmed
+the new Needs attention screen loaded the existing 194 stored alerts and showed
+the recorded continuity warning. No operational investigation or model call was
+started for this check. Model settings remain process-local and must be reapplied
+after restart if previously entered only in the GUI. The synthetic preview on
+port 8503 uses a separate state directory.
+
+## Previous verification — 2026-10-12
 
 Live CLI investigation follow-up: verified the user's llama.cpp endpoint/model
 using synthetic probes and an offline backup/restore copy of operational evidence.

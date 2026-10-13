@@ -12,17 +12,5 @@ Saved presentation exports can be generated with `python -m bluecheese.applicati
 
 On an already-used state directory, live counts start above zero and replay continues cycling. Offline import remains idempotent. To rehearse with empty live state, stop the app and set `BLUECHEESE_STATE` to a new writable directory. Do not delete or modify a followed file while expecting continuity. Replay is not packet capture.
 
-## Master-plan additions
 
-After Run Investigation, inspect the triage groups and correlation links. They
-show separate sensor severity/review priority, grouped occurrence IDs, rule basis,
-time window and correlation ambiguity. All logical roles share one bounded
-retrieval budget; no additional models or framework are involved.
-
-Use Saved case runs to load a persisted report without rerunning. Investigate
-successor revision preserves the parent run and creates a new immutable snapshot.
-A report's completed/incomplete/cancelled status is separate from its verdict.
-Start background investigation lets ingestion continue. Cancellation is cooperative;
-the current provider call must return. Restart retains prior reports and marks
-unfinished work interrupted. README includes offline bundle and backup/restore
-commands. Full rotation recovery and automatic case scheduling remain deferred.
+I am currently a full-time student. Serving on jury duty on 11/06/2026 at 8:30 AM would cause a severe conflict with my mandatory classes and academic responsibilities. Thank you for your consideration.

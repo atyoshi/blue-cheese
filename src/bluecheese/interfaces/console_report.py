@@ -13,11 +13,32 @@ def show_report(runtime, report, key):
     b.metric(
         "Run status", report.get("run_status", "Unknown").replace("_", " ").title()
     )
-    c.metric("Case revision", report.get("case_revision", "—"))
+    c.metric("Host compromise", "Unconfirmed")
     st.text(report["hypothesis"])
     st.caption(
-        "Machine assessment · Review the cited evidence before recording an analyst conclusion."
+        "Analysis completion and security conclusions are separate. Citations are mechanically checked; review whether the evidence supports each claim."
     )
+    st.markdown("#### Observations and supporting evidence")
+    for index, claim in enumerate(report.get("claims", []), 1):
+        st.text(claim["text"])
+        with st.expander(f"Evidence for observation {index}"):
+            for event_id in claim["citations"]:
+                inspect_event(
+                    runtime,
+                    report["scenario"],
+                    report["variant"],
+                    report["snapshot"],
+                    event_id,
+                    report.get("snapshot_id"),
+                )
+    if not report.get("claims"):
+        st.info("No evidence-backed observations were recorded in this result.")
+    check = report.get("falsifier", {})
+    with st.expander("Alternative explanation checked", expanded=True):
+        st.text(report["disconfirmation_test"])
+        st.text("Outcome: " + check.get("status", "Not recorded"))
+        if check.get("checked"):
+            st.text(check["checked"])
     if report["unresolved"]:
         with st.expander(
             f"Unresolved questions ({len(report['unresolved'])})", expanded=True
@@ -28,6 +49,10 @@ def show_report(runtime, report, key):
         with st.expander(f"Limits and warnings ({len(report['warnings'])})"):
             for warning in report["warnings"]:
                 st.text("• " + warning)
+    st.markdown("#### Recommended next checks")
+    st.write(
+        "Confirm whether this activity was authorized. Review endpoint process and authentication logs for the selected machine. These sources are not connected to Blue Cheese; network evidence alone cannot establish process identity or host compromise."
+    )
     left, right = st.columns(2)
     left.download_button(
         "Export JSON",
@@ -50,7 +75,12 @@ def show_report(runtime, report, key):
     )
     with st.expander(f"Verify cited evidence ({len(citations)})"):
         if citations:
-            chosen = st.selectbox("Inspect citation", citations, key=key + "-citation")
+            chosen = st.selectbox(
+                "Inspect citation",
+                citations,
+                key=key + "-citation",
+                format_func=lambda value: f"Evidence {citations.index(value) + 1}",
+            )
             inspect_event(
                 runtime,
                 report["scenario"],

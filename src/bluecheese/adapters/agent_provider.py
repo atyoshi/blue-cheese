@@ -143,7 +143,7 @@ class AgentModelProvider:
         tools.emit(
             role,
             "working",
-            f"Awaiting model response (call {activity['attempts']}/{self.max_attempts}).",
+            f"Awaiting model response (call {activity['attempts']}/{self.max_attempts}; model {payload['model']}; {size:,} input bytes).",
             kind="model",
         )
         try:

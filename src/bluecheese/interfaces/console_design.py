@@ -12,6 +12,12 @@ def apply_design():
       h4 { font-size: 1rem !important; }
       [data-testid="stMetricValue"] { font-size: 1.65rem; font-variant-numeric: tabular-nums; }
       [data-testid="stMetric"] { border-radius: 12px; }
+      [data-testid="stMetricValue"] > div { white-space: normal; overflow-wrap: anywhere; }
+      [data-testid="stMetricLabel"] p { white-space: normal; }
+      @media (max-width: 1100px) {
+        [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+        [data-testid="stColumn"] { flex: 1 1 260px !important; min-width: min(100%, 260px) !important; }
+      }
       [data-testid="stSidebar"] h2 { font-size: 1.25rem !important; }
       [data-testid="stSidebarUserContent"] { padding-top: 1.4rem; }
       [data-testid="stCaptionContainer"] { line-height: 1.5; }
@@ -30,7 +36,7 @@ def record_label(row):
     detail = (row.get("alert_signature") or row.get("flow_state") or row["event_type"])[
         :72
     ]
-    return f"{detail} · {row.get('src_ip') or '?'} → {row.get('dest_ip') or '?'} · {row['id'][:8]}"
+    return f"{detail} · {row.get('src_ip') or '?'} → {row.get('dest_ip') or '?'} · {row.get('timestamp') or 'Time unknown'}"
 
 
 def table_columns():
@@ -63,3 +69,10 @@ def investigation_link(key):
         on_click=open_investigations,
     ):
         st.rerun(scope="app")
+
+
+def start_investigation(runtime, scenario, variant, **settings):
+    """Only called by explicit UI actions; route to the submitted work."""
+    runtime.begin_run(scenario, variant, **settings)
+    st.session_state["show-submitted-investigation"] = True
+    st.rerun(scope="app")

@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import streamlit as st
@@ -10,14 +11,18 @@ from bluecheese.adapters.agent_provider import AgentModelProvider, completion_en
 from bluecheese.adapters.model_provider import ModelProfile, investigation_seconds
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.source_path import readable_eve_path
-from bluecheese.interfaces.console_activity import agent_activity
 from bluecheese.interfaces.console_design import (
     apply_design,
     investigation_link,
     record_label,
+    start_investigation,
     table_columns,
 )
-from bluecheese.interfaces.console_report import show_report
+from bluecheese.interfaces.console_workflow import (
+    attention,
+    chat_panel,
+    investigation_workspace,
+)
 from bluecheese.interfaces.demo import inspect_event
 from bluecheese.interfaces.network_overview import explain_record, overview
 
@@ -325,7 +330,8 @@ def telemetry_table(runtime, snapshot, event_type, learning=False):
         disabled=runtime.status()["investigation_pending"],
     ):
         try:
-            runtime.begin_run(
+            start_investigation(
+                runtime,
                 *SCOPE,
                 seed_event_id=selected,
                 max_calls=8,
@@ -346,158 +352,56 @@ def telemetry_table(runtime, snapshot, event_type, learning=False):
 
 
 def investigations(runtime, counts):
-    with st.expander("Automatic investigation queue"):
+    investigation_workspace(runtime, counts)
+
+
+def settings(runtime):
+    with st.expander("Agents and model endpoint", expanded=True):
+        provider_controls(runtime)
+    with st.expander("Automatic investigation and retry queue"):
         automatic = st.checkbox(
             "Investigate incoming alerts automatically",
             value=runtime.status()["automatic_investigation"],
         )
         st.caption(
-            "Off after restart. One bounded investigation at a time while ingestion is connected. Failed or interrupted work requires an explicit retry."
+            "Off after restart. One investigation at a time while the sensor is connected."
         )
-        if st.button("Apply scheduling policy"):
+        if st.button("Save automatic investigation setting"):
             runtime.set_automatic(automatic)
-        queue = runtime.command("work_queue")
-        if queue:
-            st.dataframe(queue, hide_index=True, width="stretch")
-            if (
-                st.button("Investigate next queued alert")
-                and not runtime.schedule_once()
-            ):
-                st.info(
-                    "No queued alert is available, or another investigation is active."
-                )
-            retryable = [
-                row["event_id"]
-                for row in queue
-                if row["status"] in ("FAILED", "INTERRUPTED", "CANCELLED", "INCOMPLETE")
-            ]
-            if retryable:
-                retry = st.selectbox("Retryable alert", retryable)
-                if st.button("Requeue selected alert"):
-                    runtime.command("retry_work", retry)
-                    st.success(
-                        "Alert requeued. Start the next queued alert or enable automatic investigation."
-                    )
-    st.caption(
-        "Manual investigation of external telemetry. "
-        "Choose an alert to freeze its same-source endpoint neighborhood within five minutes, or investigate the whole scope. "
-        "Table filters do not restrict the investigation. Findings are analyst leads, not a compromise verdict."
-    )
-    question = st.text_input(
-        "Case question",
-        value="What does the observed alert and related flow evidence support?",
-    )
-    latest = runtime.command("browse_telemetry", *SCOPE, runtime.command("snapshot"))[
-        "rows"
-    ]
-    seed = st.selectbox(
-        "Scope alert (latest 50; select older alerts from Alerts)",
-        ["Whole external scope"] + [row["id"] for row in latest],
-        format_func=lambda event_id: (
-            "Whole external scope"
-            if event_id == "Whole external scope"
-            else record_label(next(row for row in latest if row["id"] == event_id))
-        ),
-    )
-    seed = None if seed == "Whole external scope" else seed
-    with st.expander("Investigation budget"):
-        max_calls = st.number_input("Tool calls", min_value=0, max_value=20, value=8)
-        max_seconds = st.number_input(
-            "Seconds (cooperative limit)",
-            min_value=0.0,
-            value=60.0 if runtime.provider else 5.0,
-        )
-        falsification = st.checkbox("Check contradicting evidence", value=True)
-    active = runtime.status()["active_run_id"]
-    if counts["accepted"] > 10000 and not seed:
-        st.warning(
-            "Whole-scope investigation exceeds the 10,000-record limit. Select an alert to investigate a bounded neighborhood."
-        )
-    if st.button(
-        "Start investigation",
-        type="primary",
-        disabled=runtime.status()["investigation_pending"]
-        or not counts["accepted"]
-        or (counts["accepted"] > 10000 and not seed),
-    ):
-        try:
-            runtime.begin_run(
-                *SCOPE,
-                question=question,
-                seed_event_id=seed,
-                max_calls=max_calls,
-                max_seconds=max_seconds,
-                falsification=falsification,
+            st.success(
+                "Automatic investigations " + ("enabled" if automatic else "disabled")
             )
-        except (RuntimeError, ValueError) as error:
-            st.error(str(error))
-    if st.button("Cancel investigation", disabled=not active):
-        runtime.cancel()
-    if active:
-        st.info(f"Investigation running: {active}. Ingestion continues.")
-    history = runtime.command("list_runs", *SCOPE)
-    if not history:
-        st.info("No saved investigations yet.")
-        return
-    st.markdown("#### Saved investigations")
-    with st.expander(f"Run history ({len(history)})"):
-        st.dataframe(history, hide_index=True, width="stretch", height=220)
-    selected = st.selectbox(
-        "Saved investigation",
-        [row["run_id"] for row in history],
-        format_func=lambda run_id, runs=history: next(
-            f"{row['status'].replace('_', ' ').title()} · {row['run_id'][:8]}"
-            for row in runs
-            if row["run_id"] == run_id
-        ),
-        key="saved-investigation",
-    )
-    saved = runtime.command("get_run", *SCOPE, selected)
-    if saved["report"]:
-        show_report(runtime, saved["report"], "case-" + selected)
-        if st.button("Create successor investigation"):
-            report = saved["report"]
-            try:
-                runtime.begin_run(
-                    *SCOPE,
-                    question=report["scope_question"],
-                    seed_event_id=report.get("seed_event_id"),
-                    parent_run_id=selected,
-                    max_calls=max_calls,
-                    max_seconds=max_seconds,
-                    falsification=falsification,
-                )
-            except (RuntimeError, ValueError) as error:
-                st.error(str(error))
-    else:
-        st.write("Status:", saved["status"])
-        if saved["error"]:
-            st.code(saved["error"])
-        with st.expander("Retrieval audit"):
-            st.json(saved["tool_activity"])
-    st.subheader("Analyst disposition")
-    with st.form("analyst-action-" + selected):
-        actor = st.text_input(
-            "Analyst",
-            max_chars=128,
-            help="Local attribution name; this release does not authenticate accounts.",
+        queue = runtime.command("work_queue")
+        st.caption(
+            f"{sum(row['status'] == 'QUEUED' for row in queue)} queued alerts in the latest 100 work items"
         )
-        disposition = st.selectbox(
-            "Disposition",
-            ["OPEN", "INVESTIGATING", "ESCALATED", "CLOSED_BENIGN", "CLOSED_INCIDENT"],
-        )
-        note = st.text_area("Note", max_chars=8192)
-        if st.form_submit_button("Save analyst action"):
-            try:
-                runtime.command(
-                    "add_analyst_action", *SCOPE, selected, actor, disposition, note
+        if st.button("Investigate next queued alert"):
+            if runtime.schedule_once():
+                st.session_state["show-submitted-investigation"] = True
+                st.rerun(scope="app")
+            else:
+                st.info(
+                    "No queued work is available, or another investigation is active."
                 )
-                st.success("Analyst action saved; machine report retained unchanged.")
-            except ValueError as error:
-                st.error(str(error))
-    history = runtime.command("analyst_history", *SCOPE, selected)
-    if history:
-        st.json(history)
+        retryable = [
+            row
+            for row in queue
+            if row["status"] in ("FAILED", "INTERRUPTED", "CANCELLED", "INCOMPLETE")
+        ]
+        if retryable:
+            by_id = {row["event_id"]: row for row in retryable}
+            retry = st.selectbox(
+                "Retryable alert",
+                list(by_id),
+                format_func=lambda value: (
+                    f"{by_id[value]['status'].title()} · {by_id[value]['created_at'][:19]}"
+                ),
+            )
+            if st.button("Requeue selected alert"):
+                runtime.command("retry_work", retry)
+                st.success("Alert requeued")
+        with st.expander("Queue diagnostics"):
+            st.dataframe(queue, hide_index=True, width="stretch")
 
 
 def workspace(runtime, page, learning=True, auto_refresh=True):
@@ -505,7 +409,6 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
     counts = runtime.command("counts", *SCOPE)
     snapshot = runtime.command("snapshot")
     alerts = runtime.command("browse_telemetry", *SCOPE, snapshot)
-    metrics = st.columns(4)
     input_state = "Connected" if status["running"] else "Disconnected"
     if status["running"] and status["source_mode"] == "unix_stream":
         input_state = (
@@ -513,43 +416,72 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
             if status["stream_state"] == "Producer connected"
             else "Listening"
         )
-    metrics[0].metric("Sensor", input_state, border=True)
-    metrics[1].metric(
-        "Accepted records",
-        f"{counts['accepted']:,}",
-        help="Stored alert and flow records in the external telemetry scope, including earlier sessions. These are records, not individual packets or unique conversations.",
-        border=True,
+    st.caption(
+        f"Sensor: {input_state} · Last new record: {status.get('last_accepted') or 'none this session'}"
     )
-    metrics[2].metric(
-        "Alerts",
-        f"{alerts['total']:,}",
-        help="Stored Suricata detection-rule matches. An alert is not proof of compromise.",
-        border=True,
-    )
-    metrics[3].metric(
-        "Quarantined records",
-        f"{counts['invalid']:,}",
-        help="Records not accepted as alert/flow evidence. Includes unsupported event types such as DNS, as well as malformed records. Inspect Sensor health for the reasons.",
-        border=True,
-    )
+    with st.expander("Sensor status and stored evidence totals"):
+        metrics = st.columns(4)
+        metrics[0].metric("Sensor", input_state, border=True)
+        metrics[1].metric(
+            "Accepted records",
+            f"{counts['accepted']:,}",
+            help="Stored alert and flow records in the external telemetry scope, including earlier sessions. These are records, not individual packets or unique conversations.",
+            border=True,
+        )
+        metrics[2].metric(
+            "Alerts",
+            f"{alerts['total']:,}",
+            help="Stored Suricata detection-rule matches. An alert is not proof of compromise.",
+            border=True,
+        )
+        metrics[3].metric(
+            "Quarantined records",
+            f"{counts['invalid']:,}",
+            help="Records not accepted as alert/flow evidence. Includes unsupported event types such as DNS, as well as malformed records. Inspect Sensor health for the reasons.",
+            border=True,
+        )
+        st.caption(
+            f"Last successful sensor check: {status.get('last_poll') or 'none this session'} · Last bytes read: {status['last_ingest'] or 'none this session'}"
+        )
     if not status["running"]:
         if not status["status"].startswith("Stopped"):
             st.error(status["status"])
-        else:
+        elif not counts["accepted"]:
             st.info(
-                "Choose an EVE file or Unix stream socket in the sidebar and connect. Saved evidence remains available while disconnected."
+                "Connect an EVE file or Unix stream in the sidebar to receive telemetry."
             )
     if status["running"] and status["stream_state"]:
         st.caption("Unix stream: " + status["stream_state"])
+    now = datetime.now(UTC).strftime("%H:%M:%S UTC")
+    previous = st.session_state.get("last-view-accepted")
+    st.session_state["last-view-accepted"] = counts["accepted"]
+    delta = counts["accepted"] - previous if previous is not None else None
+    refresh_state = "Auto refresh on" if auto_refresh else "Auto refresh off"
     st.caption(
-        f"Last read: {status['last_ingest'] or 'No telemetry read this session'} · "
+        f"View refreshed {now} · {refresh_state}"
         + (
-            "Auto refresh every 2 seconds"
-            if auto_refresh
-            else "Auto refresh off · filters or Refresh now reload the view"
+            f" · {delta:,} newly accepted records"
+            if delta and delta > 0
+            else " · no new accepted records since previous view"
+            if delta == 0
+            else ""
         )
     )
-    if page == "Overview":
+    future = runtime.pending_run
+    if future is not None and future.done() and future.exception() is not None:
+        st.error("The latest investigation failed: " + str(future.exception())[:1024])
+    incidents = runtime.command("source_incidents")
+    if incidents:
+        st.warning(
+            f"{len(incidents)} recorded source continuity incident(s). Coverage may be incomplete; inspect Sensor health."
+        )
+    if page == "Needs attention":
+        review, chat = st.columns([3, 2])
+        with review:
+            attention(runtime, snapshot)
+        with chat:
+            st.fragment(run_every=1.0)(chat_panel)(runtime)
+    elif page == "Overview":
         overview(runtime, snapshot, learning)
     elif page == "Alerts":
         telemetry_table(runtime, snapshot, "alert", learning)
@@ -557,6 +489,8 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
         telemetry_table(runtime, snapshot, "flow", learning)
     elif page == "Investigations":
         investigations(runtime, counts)
+    elif page == "Settings":
+        settings(runtime)
     else:
         st.write("Source:", status["source"] or "Not connected")
         st.write(
@@ -617,14 +551,32 @@ def main():
                 ).resolve()
             )
         )
+        if st.session_state.pop("show-submitted-investigation", False):
+            st.session_state["workspace-page"] = "Investigations"
+            st.session_state.pop("saved-investigation", None)
+            st.session_state["follow-submitted-run"] = True
+        if st.session_state.pop("navigate-case", False):
+            st.session_state["workspace-page"] = "Investigations"
+        navigation = st.session_state.pop("navigate-page", None)
+        if navigation:
+            st.session_state["workspace-page"] = navigation
         page = st.sidebar.radio(
             "Workspace",
-            ["Overview", "Alerts", "Flows", "Investigations", "Sensor health"],
+            [
+                "Needs attention",
+                "Investigations",
+                "Overview",
+                "Alerts",
+                "Flows",
+                "Sensor health",
+                "Settings",
+            ],
+            format_func=lambda value: "Network" if value == "Overview" else value,
             key="workspace-page",
         )
         learning = st.sidebar.toggle(
             "Learning mode",
-            value=True,
+            value=False,
             help="Explain the displayed evidence and network fundamentals. Turn off for a compact analyst view.",
         )
         auto_refresh = st.sidebar.toggle(
@@ -632,7 +584,10 @@ def main():
             value=True,
             help="Turn off while reading evidence or editing a case. Ingestion continues in the background; changing filters reloads the view.",
         )
-        st.sidebar.button("Refresh now", icon=":material/refresh:", width="stretch")
+        if st.sidebar.button("Refresh now", icon=":material/refresh:", width="stretch"):
+            st.sidebar.success(
+                "View refreshed " + datetime.now(UTC).strftime("%H:%M:%S UTC")
+            )
         current = runtime.status()
         with st.sidebar.expander(
             "Sensor connection",
@@ -642,8 +597,6 @@ def main():
                 runtime
             )
         st.sidebar.divider()
-        with st.sidebar.expander("Agents and model endpoint"):
-            provider_controls(runtime)
         st.sidebar.caption(
             "Local analyst console · "
             + (
@@ -652,8 +605,16 @@ def main():
                 else "Rule-based investigation · No model provider configured"
             )
         )
-        st.title(page)
-        st.fragment(run_every=1.0)(agent_activity)(runtime)
+        st.title("Network" if page == "Overview" else page)
+        current_run = runtime.activity.snapshot()["run_id"]
+        if current["investigation_pending"] and page != "Investigations":
+            st.info(
+                "An investigation is running. Open Investigations to follow its actual operations."
+            )
+            if current_run and st.button("Open active investigation"):
+                st.session_state["open-case-run"] = current_run
+                st.session_state["navigate-case"] = True
+                st.rerun(scope="app")
         st.fragment(run_every=2.0 if auto_refresh else None)(workspace)(
             runtime, page, learning, auto_refresh
         )

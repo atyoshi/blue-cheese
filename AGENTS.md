@@ -21,3 +21,11 @@ Invariants: accepted raw text is exact and immutable. Event IDs include source i
 Tests beside implementation behavior live in tests/test_demo_store.py, test_investigator.py, test_ingestion.py and test_demo_ui.py. Retain legacy tests. Use temporary paths/no network/no real models; deterministic polling replaces sleep-based tests. Package using the same requirements.lock for native and Docker. Do not add an agent framework, restructure the repository or download datasets/models.
 
 Implemented original tasks 1–6 plus the master-plan slices recorded in ROADMAP.md; the full roadmap is incomplete. Container execution and macOS remain unverified. See session status for measured checks and deferred scope.
+
+Product priority (2026-10-13): complete the small-security-team alert-to-decision
+workflow before other master-plan features. Reference docs/WORKFLOW.md. Use
+enterprise SIEM case organization: prioritized alerts, named target/snapshot,
+contextual chat, real per-run agent operations, cited findings and analyst decisions.
+Keep technical controls secondary. Never simulate progress or claim execution from
+a proposal. Measure usefulness through analyst completion, time saved and finding
+quality; synthetic tests do not establish commercial readiness or detection accuracy.

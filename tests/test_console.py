@@ -35,25 +35,24 @@ def test_gui_configures_agents_probes_only_on_click_and_returns_to_rules(
     app = AppTest.from_file(str(APP), default_timeout=20).run()
     runtime = runtimes[0]
     try:
+        app.sidebar.radio[0].set_value("Settings").run()
         assert not app.exception
         assert next(
-            b for b in app.sidebar.button if b.label == "Test agent connection"
+            b for b in app.button if b.label == "Test agent connection"
         ).disabled
+        next(s for s in app.selectbox if s.label == "Investigation engine").set_value(
+            "Model agents"
+        )
+        next(s for s in app.text_input if s.label == "Investigator model").set_value(
+            "local-model"
+        )
         next(
-            s for s in app.sidebar.selectbox if s.label == "Investigation engine"
-        ).set_value("Model agents")
-        next(
-            s for s in app.sidebar.text_input if s.label == "Investigator model"
-        ).set_value("local-model")
-        next(
-            s for s in app.sidebar.text_input if s.label.startswith("Falsifier model")
+            s for s in app.text_input if s.label.startswith("Falsifier model")
         ).set_value("critic-model")
-        next(
-            s for s in app.sidebar.text_input if s.label.startswith("API key (")
-        ).set_value("secret-for-test")
-        next(
-            b for b in app.sidebar.button if b.label == "Apply agent settings"
-        ).click().run()
+        next(s for s in app.text_input if s.label.startswith("API key (")).set_value(
+            "secret-for-test"
+        )
+        next(b for b in app.button if b.label == "Apply agent settings").click().run()
         assert not app.exception
         assert isinstance(runtime.provider, AgentModelProvider)
         assert (
@@ -65,19 +64,15 @@ def test_gui_configures_agents_probes_only_on_click_and_returns_to_rules(
         app.run()
         assert runtime.status()["investigation_runs"] == 0
         assert probes == []
-        next(
-            b for b in app.sidebar.button if b.label == "Test agent connection"
-        ).click().run()
+        next(b for b in app.button if b.label == "Test agent connection").click().run()
         assert not app.exception
         assert len(probes) == 1
         app.run()
         assert len(probes) == 1
-        next(
-            s for s in app.sidebar.selectbox if s.label == "Investigation engine"
-        ).set_value("Rule-based")
-        next(
-            b for b in app.sidebar.button if b.label == "Apply agent settings"
-        ).click().run()
+        next(s for s in app.selectbox if s.label == "Investigation engine").set_value(
+            "Rule-based"
+        )
+        next(b for b in app.button if b.label == "Apply agent settings").click().run()
         assert not app.exception
         assert runtime.provider is None
         assert runtime.status()["investigation_runs"] == 0
@@ -267,7 +262,9 @@ def test_overview_filters_chart_population_evidence_and_learning_mode(
     app = AppTest.from_file(str(APP), default_timeout=20).run()
     runtime = runtimes[0]
     try:
-        assert app.sidebar.radio[0].value == "Overview"
+        assert app.sidebar.radio[0].value == "Needs attention"
+        app.sidebar.radio[0].set_value("Overview").run()
+        app.sidebar.toggle[0].set_value(True).run()
         next(b for b in app.sidebar.button if b.label == "Connect sensor").click().run()
         assert not app.exception
         assert next(m for m in app.metric if m.label == "Alerts in view").value == "1"
@@ -382,11 +379,13 @@ def test_console_stream_receiver_uses_same_evidence_and_stops_on_disconnect(
                 b for b in app.sidebar.button if b.label == "Connect sensor"
             ).click().run()
             assert not app.exception
+            assert runtime.status()["running"], runtime.status()["status"]
             assert (
                 next(m for m in app.metric if m.label == "Sensor").value == "Listening"
             )
             producer.connect(path)
             producer.sendall(FIXTURE.read_bytes())
+            app.sidebar.radio[0].set_value("Overview").run()
             runtime.poll_once()
             app.run()
             assert not app.exception

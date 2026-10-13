@@ -34,6 +34,9 @@ class DemoRuntime:
         self.activity = RunActivity(self.lock)
         self.provider = None if load_fixtures else configured_provider()
         self.database = StoreWorker(self.state_dir / "evidence.duckdb")
+        self.activity.persist = lambda run_id, event: self.database.call(
+            "record_activity", run_id, event
+        )
         self.store = WorkerStore(self.database)
         self.orchestrator = Orchestrator()
         self.run_lock = threading.Lock()
@@ -48,6 +51,8 @@ class DemoRuntime:
         self.replay = False
         self.replay_index = 0
         self.last_ingest = None
+        self.last_poll = None
+        self.last_accepted = None
         self.source_status = "Stopped"
         self.worker_starts = 0
         self.automatic = False
@@ -81,6 +86,12 @@ class DemoRuntime:
             max_workers=1, thread_name_prefix="bluecheese-investigation"
         )
         self.pending_run = None
+        self.chat_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="bluecheese-chat"
+        )
+        self.pending_chat = None
+        self.chat_cancel = threading.Event()
+        self.chat_started = None
         atexit.register(self.close)
 
     def command(self, method, *args, **kwargs):
@@ -94,13 +105,40 @@ class DemoRuntime:
         with self.lock:
             if self.closed or self.closing:
                 raise RuntimeError("Runtime is closed")
-            if self.run_lock.locked() or (
-                self.pending_run and not self.pending_run.done()
+            if (
+                self.run_lock.locked()
+                or (self.pending_run and not self.pending_run.done())
+                or (self.pending_chat and not self.pending_chat.done())
             ):
                 raise RuntimeError(
                     "Wait for the current investigation before changing providers"
                 )
             self.provider = provider
+
+    def begin_chat(self, message, run_id=None):
+        from bluecheese.application.workspace_chat import respond
+
+        with self.lock:
+            if self.closed or self.closing:
+                raise RuntimeError("Runtime is closed")
+            if self.pending_chat and not self.pending_chat.done():
+                raise RuntimeError("A chat request is already running")
+            if (
+                not isinstance(message, str)
+                or not message.strip()
+                or len(message) > 4096
+            ):
+                raise ValueError("Message must contain 1–4,096 characters")
+            self.chat_cancel.clear()
+            self.chat_started = datetime.now(UTC)
+            self.command("append_chat", "live", "external", run_id, "user", message)
+            self.pending_chat = self.chat_executor.submit(
+                respond, self, message, run_id
+            )
+            return self.pending_chat
+
+    def cancel_chat(self):
+        self.chat_cancel.set()
 
     def test_provider(self):
         if not self.run_lock.acquire(blocking=False):
@@ -155,7 +193,7 @@ class DemoRuntime:
                     seed_event_id=seed_event_id,
                 )
                 self.active_run_id = run["run_id"]
-                self.activity.run_id = run["run_id"]
+                self.activity.bind(run["run_id"])
                 self.investigation_runs += 1
                 provider = self.provider
             scoped = WorkerStore(
@@ -382,9 +420,19 @@ class DemoRuntime:
                         self.replay_lines[self.replay_index % len(self.replay_lines)]
                     )
                 self.replay_index += 1
-            result = self.database.apply(lambda store: self.follower.poll_once())
+
+            def poll(store):
+                before = store.snapshot()
+                result = self.follower.poll_once()
+                result["accepted"] = store.snapshot() - before
+                return result
+
+            result = self.database.apply(poll)
+            self.last_poll = datetime.now(UTC).isoformat()
             if result["bytes_read"]:
                 self.last_ingest = datetime.now(UTC).isoformat()
+            if result.get("accepted", 0):
+                self.last_accepted = self.last_poll
             if self.automatic:
                 self.schedule_once()
             return result
@@ -445,6 +493,8 @@ class DemoRuntime:
                 "status": self.source_status,
                 "source": str(self.follower.path) if self.follower else None,
                 "last_ingest": self.last_ingest,
+                "last_poll": self.last_poll,
+                "last_accepted": self.last_accepted,
                 "committed_offset": self.follower.committed if self.follower else 0,
                 "counts": self.database.call("counts", "live", variant),
                 "worker_starts": self.worker_starts,
@@ -500,8 +550,10 @@ class DemoRuntime:
         with self.lock:
             self.closing = True
         self.cancel()
+        self.cancel_chat()
         self.stop()
         self.executor.shutdown(wait=True)
+        self.chat_executor.shutdown(wait=True)
         with self.run_lock, self.lock:
             if not self.closed:
                 if self.follower and hasattr(self.follower, "close"):

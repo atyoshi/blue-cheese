@@ -260,7 +260,7 @@ With an existing Suricata EVE file:
 2. Click **Connect sensor**. Watch **Accepted records**, **Alerts** and
    **Quarantined records**. Existing lines load in bounded batches; new lines
    continue arriving if Suricata is writing the file.
-3. Open **Overview** to inspect activity, then **Alerts**. Filter if needed and
+3. Start on **Needs attention** and click **Investigate** on an alert. Use **Network** to inspect activity, or **Alerts** for detailed filtering. Filter if needed and
    choose a record under **Inspect evidence**. Expand **Original evidence and
    normalized fields** to read the exact log, parsed JSON and canonical fields.
 4. Click **Investigate selected alert**, then open **Investigations**. Select the
@@ -385,13 +385,15 @@ Use the sidebar's **Workspace** selector to move between these pages:
 
 | Page | How to use it |
 | --- | --- |
-| **Overview** | Spot activity patterns, focus on endpoints/connections, and drill down to evidence. |
+| **Needs attention** | Review priority-ranked alert groups and open a named investigation. Ask about workspace state in chat. |
+| **Network** | Spot activity patterns, focus on ranked endpoints/connections, and drill down to evidence. |
 | **Alerts** | Filter by exact endpoint IP, signature substring and sensor severity; select an alert to inspect or investigate. |
 | **Flows** | Filter by exact endpoint IP and inspect flow state, endpoints and byte counters. |
-| **Investigations** | Start runs, review saved results, export reports, manage queued work and record analyst decisions. |
+| **Investigations** | Follow a named target, ask contextual questions, inspect actual agent queries and cited findings, assign and record a decision. |
+| **Settings** | Configure models, automatic investigation and queued retries. |
 | **Sensor health** | Inspect source status, committed byte offset, spool path, rotation notices, quarantine reasons and continuity incidents. |
 
-On **Overview**, use **Activity**, **Connections** and **Evidence** to move from
+On **Network**, use **Connections**, **Activity** and **Evidence** to move from
 patterns to individual records. Endpoint and connection focus apply across all
 three tabs; **Reset focus** clears both. The timeline uses event time in UTC:
 hover for values, Shift + scroll to zoom, drag to pan, and double-click to reset.
@@ -410,7 +412,7 @@ cannot establish uninterrupted coverage, and an old capture retains its original
 event times.
 
 **Learning mode** adds explanations of IPs, ports, TCP/UDP, flows, alerts and
-record fields. Switch it off for a compact view. **Auto refresh** refreshes the
+record fields. It is off by default for a compact view. **Auto refresh** refreshes the
 operational workspace every two seconds. Turn it off while reading or editing;
 ingestion continues. Changing a filter or pressing **Refresh now** reloads the
 view. **Sensor connection** collapses once evidence is available; expand it to
@@ -418,10 +420,15 @@ connect or disconnect.
 
 ## Investigate and record a decision
 
+Start with the [alert-to-decision walkthrough](docs/WORKFLOW.md). Case chat,
+connections, agent activity and decisions share an explicit investigation target.
+Sensor totals are cumulative; they are available in the expandable status panel.
+Refresh shows completion and whether new accepted records arrived.
+
 ### Choose scope and budget
 
 **Investigate selected alert** on Alerts, or **Investigate this alert** in
-Overview, freezes a same-source endpoint neighborhood within five minutes of
+Network, freezes a same-source endpoint neighborhood within five minutes of
 that alert. On **Investigations**,
 set **Case question**, choose a **Scope alert**, and click **Start investigation**.
 The scope selector lists the latest 50 alerts; select older alerts from **Alerts**.
@@ -433,9 +440,9 @@ evidence rather than answering arbitrary natural-language questions. Triage assi
 review priority, correlation proposes links with provenance and ambiguity, and one
 bounded seed group is investigated per run.
 
-Expand **Investigation budget** to set **Tool calls**, **Seconds (cooperative
+Expand **Advanced: manual scope and investigation limits** to set **Tool calls**, **Seconds (cooperative
 limit)** and **Check contradicting evidence**. The operational defaults are eight
-tool calls and five seconds with rules, or 60 seconds with configured model agents.
+tool calls and five seconds with rules, or a cooperative model budget derived from the configured call timeout and attempt limits.
 The selected-alert shortcut uses these fixed defaults; edit budgets through the
 Investigations page for a custom run. The presentation defaults are six calls and
 five seconds. Retrieval is capped at 100 records and 64 KiB per call. Failed tool
@@ -446,15 +453,16 @@ investigation** requests cooperative cancellation: an active provider call must
 return before it takes effect. Time limits are cooperative too. Restart marks
 unfinished runs interrupted; saved completed reports survive.
 
-The **Agent activity** panel follows the current investigation on every workspace
-page. It shows the active role, current action and elapsed time, with separate
-labels for rule policies, model calls and evidence tools. Expand **Agent handoffs
-and activity timeline** to see prioritization, task handoffs, retrieval and report
-validation, including fast steps that finished between refreshes. The panel updates
-once per second independently of telemetry auto refresh and never starts work.
-Cancellation, failures and exhausted budgets appear explicitly. The latest run's
-live timeline retains at most 128 events; saved reports retain the activity through
-report preparation in their reasoning audit.
+The **Agent activity** tab follows the selected investigation. Actual query
+arguments, returned records, rule outputs, model waits and errors remain tied to
+its run. It refreshes every second independently of telemetry auto refresh.
+Incremental activity persists for failed and interrupted runs as well as completed
+reports; older runs with no recorded trace are labelled accordingly.
+
+**Ask Blue Cheese** uses this case's frozen evidence and recorded activity. Model
+explanations validate citations against bounded chat retrieval. New analysis or
+source changes are explicit proposals; ordinary reading does not launch another
+investigation. Without a configured model, local chat commands remain available.
 
 ### Review the report before deciding
 
@@ -484,7 +492,7 @@ as later telemetry arrives. Downloads contain the report, not a full database
 backup. Use **Create successor investigation** to make a new run linked to the
 selected report with a new snapshot; the prior report stays unchanged.
 
-Under **Analyst disposition**, enter **Analyst**, choose `OPEN`, `INVESTIGATING`,
+Under **Analyst decision**, enter **Analyst**, set **Assigned to**, choose `OPEN`, `INVESTIGATING`,
 `ESCALATED`, `CLOSED_BENIGN` or `CLOSED_INCIDENT`, add a **Note**, and click
 **Save analyst action**. Actions persist separately from the machine report and
 appear below the form. Analyst names are local attribution, not authenticated
@@ -492,8 +500,8 @@ identities. Closing a case does not release its pinned evidence for retention.
 
 ### Use the automatic queue
 
-Expand **Automatic investigation queue**, enable **Investigate incoming alerts
-automatically**, then click **Apply scheduling policy**. Automatic processing is
+Open **Settings → Automatic investigation and retry queue**, enable **Investigate incoming alerts
+automatically**, then click **Save automatic investigation setting**. Automatic processing is
 opt-in, runs one bounded investigation at a time while ingestion is connected,
 and resets to off after restart. Durable work remains available after restart.
 

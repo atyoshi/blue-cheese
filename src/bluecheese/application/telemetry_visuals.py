@@ -105,3 +105,17 @@ def connection_graph(connections):
         )
     lines.append("}")
     return "\n".join(lines)
+
+
+def rank_endpoints(rows):
+    """Count each endpoint once per record, including same-IP flows."""
+    endpoints = {}
+    for row in rows:
+        for ip in {row.get("src_ip"), row.get("dest_ip")} - {None, ""}:
+            item = endpoints.setdefault(ip, {"ip": ip, "records": 0, "alerts": 0})
+            item["records"] += 1
+            item["alerts"] += row["event_type"] == "alert"
+    return sorted(
+        endpoints.values(),
+        key=lambda item: (-item["alerts"], -item["records"], item["ip"]),
+    )

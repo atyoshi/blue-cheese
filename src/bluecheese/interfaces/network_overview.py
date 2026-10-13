@@ -2,10 +2,15 @@
 
 import streamlit as st
 
-from bluecheese.application.telemetry_visuals import connection_graph, summarize
+from bluecheese.application.telemetry_visuals import (
+    connection_graph,
+    rank_endpoints,
+    summarize,
+)
 from bluecheese.interfaces.console_design import (
     investigation_link,
     record_label,
+    start_investigation,
     table_columns,
 )
 from bluecheese.interfaces.demo import inspect_event
@@ -62,11 +67,21 @@ def overview(runtime, snapshot, learning):
         if learning:
             fundamentals()
         return
-    endpoints = sorted(
-        {r[field] for r in rows for field in ("src_ip", "dest_ip") if r.get(field)}
-    )
+    ranked = rank_endpoints(rows)
+    by_ip = {item["ip"]: item for item in ranked}
+    endpoints = list(by_ip)
+    if st.session_state.get("visual-endpoint") not in ["All endpoints", *endpoints]:
+        reset_focus()
     endpoint = controls[1].selectbox(
-        "Focus on an endpoint", ["All endpoints", *endpoints], key="visual-endpoint"
+        "Focus on an endpoint",
+        ["All endpoints", *endpoints],
+        key="visual-endpoint",
+        format_func=lambda ip: (
+            ip
+            if ip == "All endpoints"
+            else f"{ip} · {by_ip[ip]['alerts']} alerts · {by_ip[ip]['records']} records"
+        ),
+        help="Ranked by alert count, then record count. Type an IP to search. This filters the overview; it does not start an investigation.",
     )
     controls[2].button(
         "Reset focus",
@@ -100,6 +115,11 @@ def overview(runtime, snapshot, learning):
             if (r.get("src_ip") or "Unknown") == selected_pair["source"]
             and (r.get("dest_ip") or "Unknown") == selected_pair["destination"]
         ]
+    st.caption(
+        "Viewing "
+        + ("all recent endpoints" if endpoint == "All endpoints" else endpoint)
+        + " · Choose an alert in Evidence to start an investigation."
+    )
     summary = summarize(filtered)
     st.caption(
         f"Visual scope: {len(filtered):,} of the latest {len(rows):,} accepted records · limit {limit:,} · receipt sequence {snapshot:,}. All views below share this focus; header counters cover the stored external scope."
@@ -114,11 +134,43 @@ def overview(runtime, snapshot, learning):
     b.metric("Flow records in view", sum(r["event_type"] == "flow" for r in filtered))
     c.metric("Directed IP pairs in view", len(summary["connections"]))
     activity_tab, connection_tab, evidence_tab = st.tabs(
-        ["Activity", "Connections", "Evidence"]
+        ["Connections", "Activity", "Evidence"]
     )
-    with activity_tab:
-        activity(summary, filtered, learning)
     with connection_tab:
+        activity(summary, filtered, learning)
+    with activity_tab:
+        st.markdown("#### Most active endpoints")
+        st.vega_lite_chart(
+            {
+                "data": {"values": ranked[:10]},
+                "mark": "bar",
+                "encoding": {
+                    "y": {
+                        "field": "ip",
+                        "type": "nominal",
+                        "sort": "-x",
+                        "title": None,
+                    },
+                    "x": {
+                        "field": "records",
+                        "type": "quantitative",
+                        "title": "Recent records",
+                    },
+                    "color": {
+                        "field": "alerts",
+                        "type": "quantitative",
+                        "title": "Alerts",
+                    },
+                    "tooltip": [
+                        {"field": "ip"},
+                        {"field": "records"},
+                        {"field": "alerts"},
+                    ],
+                },
+            },
+            width="stretch",
+            height=220,
+        )
         st.markdown("#### Connection map")
         st.caption(
             "Source → destination · orange: includes alerts · blue: flow records only"
@@ -358,7 +410,8 @@ def visual_evidence(runtime, snapshot, candidates, learning):
         disabled=runtime.status()["investigation_pending"],
     ):
         try:
-            runtime.begin_run(
+            start_investigation(
+                runtime,
                 *SCOPE,
                 seed_event_id=selected,
                 max_calls=8,

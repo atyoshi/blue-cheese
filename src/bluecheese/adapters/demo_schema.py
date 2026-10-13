@@ -50,12 +50,25 @@ CREATE TABLE IF NOT EXISTS file_generations (
     source VARCHAR, generation VARCHAR PRIMARY KEY, source_key VARCHAR,
     identity VARCHAR, opened_at VARCHAR, active BOOLEAN);
 """
+WORKSPACE_SQL = """
+CREATE TABLE IF NOT EXISTS case_workspace (
+    case_id VARCHAR PRIMARY KEY, title VARCHAR, owner VARCHAR, disposition VARCHAR,
+    updated_at VARCHAR);
+CREATE TABLE IF NOT EXISTS run_context (
+    run_id VARCHAR PRIMARY KEY, seed_event_id VARCHAR);
+CREATE TABLE IF NOT EXISTS run_activity (
+    run_id VARCHAR, sequence BIGINT, event VARCHAR, PRIMARY KEY(run_id, sequence));
+CREATE TABLE IF NOT EXISTS workspace_chat (
+    message_id VARCHAR PRIMARY KEY, scenario VARCHAR, variant VARCHAR,
+    run_id VARCHAR, role VARCHAR, content VARCHAR, created_at VARCHAR);
+"""
 MIGRATIONS = {
     1: SQL,
     2: OPERATIONS_SQL,
     3: WORK_SQL,
     4: RETENTION_SQL,
     5: GENERATIONS_SQL,
+    6: WORKSPACE_SQL,
 }
 
 

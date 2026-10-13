@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 
 
 class RunActivity:
-    def __init__(self, lock, clock=time.monotonic):
+    def __init__(self, lock, clock=time.monotonic, persist=None):
         self.lock, self.clock = lock, clock
+        self.persist = persist
         self.events = deque(maxlen=128)
         self.run_id = None
         self.state = "IDLE"
@@ -37,10 +38,19 @@ class RunActivity:
                     "role": role,
                     "status": status,
                     "kind": kind,
-                    "message": message,
+                    "message": message[:4096],
                     "handoff_to": handoff_to,
                 }
             )
+            if self.run_id and self.persist:
+                self.persist(self.run_id, dict(self.events[-1]))
+
+    def bind(self, run_id):
+        with self.lock:
+            self.run_id = run_id
+            if self.persist:
+                for event in self.events:
+                    self.persist(run_id, dict(event))
 
     def finish(self, state):
         with self.lock:

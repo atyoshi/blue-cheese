@@ -4,6 +4,11 @@ Authority: `Blue_Cheese_Master_Implementation_Plan.md`, particularly Sections 9,
 11–13, 17 and work packages in Section 24. Status describes implemented code,
 not completion of the intended system.
 
+Current product priority: [alert-to-decision workflow](docs/WORKFLOW.md) for a small
+security team. Lay this usable investigation journey before the remaining master
+plan aspects. Enterprise SIEM case organization is the reference; authenticated
+shared deployment and commercial/detection-quality validation remain deferred.
+
 | Milestone | Current status |
 | --- | --- |
 | M0 | Baseline inventoried; CLI, SQLite, PCAP and legacy web paths retained. |
@@ -75,3 +80,8 @@ snapshot drives an independent read-only GUI refresh; completion, cancellation,
 failure and budget exhaustion stop the running indicator. Saved reports include
 the activity through report preparation. No synthetic delays or extra workers
 were introduced.
+
+Decision-model research (2026-10-13): upstream native `/v1/systemone` support was
+verified. See [DECISION_TRIAGE_RESEARCH.md](docs/DECISION_TRIAGE_RESEARCH.md) for
+sources and a transport-independent, persistence-first shadow evaluation proposal.
+No classifier integration or suppression authority is implemented.

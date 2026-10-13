@@ -87,7 +87,7 @@ class EvidenceTools:
         self.emit(
             activity["role"],
             "working",
-            f"Retrieving evidence with {tool}.",
+            f"Query {tool}: {json.dumps(args, ensure_ascii=True)[:512]}",
             kind="tool",
         )
         try:
@@ -111,6 +111,18 @@ class EvidenceTools:
             self.retrieved.update({r["id"]: r for r in delivered})
         finally:
             self.activity.append(activity)
+            self.emit(
+                activity["role"],
+                "working" if activity["status"] == "OK" else "failed",
+                f"{tool}: {activity['returned_count']} records returned, {activity['bytes']} bytes; "
+                + (
+                    "delivery truncated"
+                    if activity["truncated"]
+                    else activity["status"]
+                )
+                + f". Query: {json.dumps(args, ensure_ascii=True)[:512]}",
+                kind="tool",
+            )
             if hasattr(self.store, "audit_tool"):
                 self.store.audit_tool(activity)
         self.check_cancelled()

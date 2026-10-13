@@ -12,6 +12,17 @@ This document is the master design and implementation roadmap. It consolidates t
 
 The audience is the project owner, a future coding assistant, a technical reviewer and a research evaluator. The document should let each identify what to build, where responsibilities belong, how failures are handled, what constitutes completion and which claims remain hypotheses. The master plan defines the destination; the one-session task list remains the constrained execution slice. If future repository facts conflict with this design, preserve working behavior, record an architecture decision and update the relevant contract before migration.
 
+### Current delivery priority — October 13, 2026
+
+The owner has prioritized the small-security-team alert-to-decision GUI workflow
+before additional master-plan aspects. [docs/WORKFLOW.md](docs/WORKFLOW.md) defines
+the current journey and limits: prioritized alerts, a named investigation target,
+connected evidence, contextual chat, verifiable per-run actions, cited findings
+and a recorded analyst decision. Enterprise SIEM case organization is the design
+reference. User value must be measured through task completion, time saved and
+finding quality; interface completion does not establish enterprise readiness.
+The broader architecture below remains the destination, not the immediate scope.
+
 ### Product thesis
 
 The useful output is a supported answer to a scoped security question: what happened, which entities and observations support it, what alternative explanation was checked, what remains unknown, and what the analyst should inspect next. Blue Cheese is inspired by Security Onion's sensor-to-investigation workflow and by multi-source SIEM collection patterns. It will consume outputs from tools such as Suricata and Zeek without requiring a full Security Onion, Malcolm or Elasticsearch installation. It will measure whether this smaller deployment meets its own workload rather than claim feature parity or general superiority.
