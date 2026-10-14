@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 from collections import Counter
 from pathlib import Path
 from statistics import median
@@ -12,6 +13,7 @@ from bluecheese.adapters.decision_provider import DecisionModelProvider
 from bluecheese.adapters.model_provider import ModelProfile, investigation_seconds
 from bluecheese.agents.reporting import markdown_report
 from bluecheese.application.demo_runtime import DemoRuntime
+from bluecheese.application.report_bundle import export_bundle, verify_bundle
 
 REVIEW_FIELDS = (
     "finding_support",
@@ -26,6 +28,30 @@ REVIEW_FIELDS = (
 )
 
 
+def application_revision():
+    """Record the actual checkout, including tracked changes, without credentials."""
+    root = Path(__file__).resolve().parents[3]
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        patch = subprocess.run(
+            ["git", "diff", "HEAD", "--binary"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {"commit": None, "tracked_diff_sha256": None}
+    return {"commit": commit, "tracked_diff_sha256": hashlib.sha256(patch).hexdigest()}
+
+
 def run_comparison(
     eve_paths,
     destination,
@@ -36,8 +62,13 @@ def run_comparison(
     max_calls=12,
     max_seconds=None,
     seed_event_id=None,
+    investigation_scope="connection",
     progress=None,
 ):
+    if investigation_scope not in ("connection", "host"):
+        raise ValueError("Investigation scope must be connection or host")
+    if investigation_scope == "host" and not seed_event_id:
+        raise ValueError("Host comparisons require an explicit seed")
     if not 1 <= repetitions <= 10 or not 3 <= max_calls <= 100:
         raise ValueError("Use 1..10 repetitions and 3..100 retrieval calls")
     if seed_event_id and len(eve_paths) != 1:
@@ -47,6 +78,21 @@ def run_comparison(
     )
     if not math.isfinite(seconds) or seconds <= 0:
         raise ValueError("Comparison time budget must be positive and finite")
+    revision = application_revision()
+    effective_settings = {
+        "repetitions": repetitions,
+        "max_calls": max_calls,
+        "max_seconds": seconds,
+        "investigation_scope": investigation_scope,
+        "seed_event_id": seed_event_id,
+        "investigator": getattr(provider, "label", "offline rules"),
+        "model_attempt_cap": getattr(provider, "max_attempts", 0),
+        "output_token_limit": provider.profile.max_output_tokens if provider else None,
+        "request_timeout": provider.profile.timeout if provider else None,
+        "enable_thinking": provider.profile.enable_thinking if provider else None,
+        "independent_falsifier": hasattr(provider, "falsifier_model"),
+        "falsifier_model": getattr(provider, "falsifier_model", None),
+    }
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=False)
     results = []
@@ -74,6 +120,10 @@ def run_comparison(
                         "arm": arm,
                         "evidence_sha256": evidence_hash,
                         "evidence_counts": counts,
+                        "investigation_scope": investigation_scope,
+                        "seed_event_id": seed_event_id,
+                        "application_revision": revision,
+                        "effective_settings": effective_settings,
                         "review": dict.fromkeys(REVIEW_FIELDS),
                     }
                     if arm == "advised" and decision_provider is None:
@@ -98,6 +148,7 @@ def run_comparison(
                             if arm == "advised"
                             else None,
                             seed_event_id=seed_event_id,
+                            investigation_scope=investigation_scope,
                             max_calls=max_calls,
                             max_seconds=seconds,
                         )
@@ -113,9 +164,18 @@ def run_comparison(
                             else {}
                         )
                         events = details.get("workflow_activity", [])
+                        manifest = (
+                            runtime.command("snapshot_manifest", details["snapshot_id"])
+                            if details.get("snapshot_id")
+                            else {}
+                        )
+                        diagnostic_path = root / f"{repeat:02d}-{arm}-failure.json"
+                        diagnostic_path.write_text(json.dumps(details, indent=2) + "\n")
                         entry.update(
                             status=saved.get("status", "FAILED"),
                             run_id=saved.get("run_id"),
+                            snapshot_digest=manifest.get("digest"),
+                            diagnostics=str(diagnostic_path.relative_to(destination)),
                             failure_reason="Investigation failed; inspect isolated run history",
                             elapsed_seconds=events[-1]["elapsed_seconds"]
                             if events
@@ -156,14 +216,27 @@ def run_comparison(
                         json.dumps(report, indent=2) + "\n"
                     )
                     (root / f"{name}.md").write_text(markdown_report(report))
+                    bundle = export_bundle(runtime, report, root / f"{name}.bundle")
+                    verification = verify_bundle(bundle)
                     advice = report.get("decision_advice", {})
                     activity = report.get("provider_activity", {})
                     entry.update(
                         status=report["run_status"],
                         run_id=report["run_id"],
+                        seed_event_id=report.get("seed_event_id")
+                        or next(
+                            (
+                                item["seed_id"]
+                                for item in report.get("correlation", [])
+                                if item.get("seed_id")
+                            ),
+                            None,
+                        ),
                         snapshot_digest=digest,
                         verdict=report["verdict"],
                         report=f"{case_id}/{name}.json",
+                        bundle=str(bundle.relative_to(destination)),
+                        bundle_verification=verification,
                         finding_count=len(report["claims"]),
                         advice_available=advice.get("status") == "AVAILABLE",
                         advice_status=advice.get("status", "DISABLED"),
@@ -218,16 +291,8 @@ def run_comparison(
     artifact = {
         "version": 1,
         "interrupted": interrupted,
-        "settings": {
-            "repetitions": repetitions,
-            "max_calls": max_calls,
-            "max_seconds": seconds,
-            "investigator": getattr(provider, "label", "offline rules"),
-            "model_attempt_cap": getattr(provider, "max_attempts", 0),
-            "output_token_limit": provider.profile.max_output_tokens
-            if provider
-            else None,
-        },
+        "settings": effective_settings,
+        "application_revision": revision,
         "review_status": "PENDING_ANALYST_REVIEW",
         "interpretation": "Mechanical citation validity does not establish semantic support. Missing review values are unknown. No effectiveness or calibration claim follows from these results.",
         "results": results,
@@ -287,6 +352,7 @@ def main():
     parser.add_argument("--max-calls", type=int, default=12)
     parser.add_argument("--max-seconds", type=float)
     parser.add_argument("--seed-id")
+    parser.add_argument("--scope", choices=("connection", "host"), default="connection")
     parser.add_argument(
         "--model-attempts",
         type=int,
@@ -314,6 +380,7 @@ def main():
         max_calls=args.max_calls,
         max_seconds=args.max_seconds,
         seed_event_id=args.seed_id,
+        investigation_scope=args.scope,
         progress=lambda event: print(json.dumps(event), flush=True),
     )
     print(
