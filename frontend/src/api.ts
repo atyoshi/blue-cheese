@@ -12,6 +12,7 @@ export interface RecordRow {
   [key: string]: unknown;
 }
 export interface AlertGroup {
+  investigation_scope?: "connection" | "host";
   priority: string;
   occurrence_count: number;
   last_seen: string;
@@ -145,6 +146,8 @@ export interface SavedCase {
   disposition: string;
   created_at: string;
   seed_event_id?: string;
+  investigation_scope?: "connection" | "host";
+  target_host?: string;
   snapshot: number;
   snapshot_id: string;
   record_count: number;

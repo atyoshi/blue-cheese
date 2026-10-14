@@ -101,7 +101,18 @@ class Orchestrator:
             if correlations
             else (alerts[0]["id"] if alerts else None)
         )
-        if getattr(provider, "prefetch_protocol_context", False):
+        tools.context_ids = []
+        if getattr(tools, "investigation_scope", "connection") == "host":
+            tools.emit(
+                "Orchestrator",
+                "working",
+                "Retrieving diverse protocol observations across the selected host's frozen five-minute neighborhood; these are context, not causal links.",
+            )
+            context_rows = tools.call(
+                "find_host_context", seed_id=tools.selected_seed_id, limit=24
+            )
+            tools.context_ids = [row["id"] for row in context_rows]
+        elif getattr(provider, "prefetch_protocol_context", False):
             # Alert-heavy broad queries can exhaust delivery bytes before protocol
             # observations. Acquire one bounded typed slice of an observed protocol.
             kinds = {
@@ -149,7 +160,7 @@ class Orchestrator:
         report["triage"] = triage
         report["correlation"] = correlations
         report["workflow"] = {
-            "policy_version": "bounded-workflow-v1",
+            "policy_version": "bounded-workflow-v2",
             "roles": [
                 "Orchestrator",
                 "Triage",
@@ -159,7 +170,11 @@ class Orchestrator:
                 "Falsifier",
                 "Reporter",
             ],
-            "selection": "Analyst-selected alert; same-source endpoint neighborhood within five minutes."
+            "investigation_scope": getattr(tools, "investigation_scope", "connection"),
+            "context_ids": tools.context_ids,
+            "selection": "Analyst-selected source host; same-source traffic to and from that host within five minutes. Cross-connection observations are context, not causal links."
+            if getattr(tools, "investigation_scope", "connection") == "host"
+            else "Analyst-selected alert; same-source endpoint neighborhood within five minutes."
             if requested
             else "Highest triage priority, then stable occurrence ID; one seed group per run.",
             "automatic_response": False,

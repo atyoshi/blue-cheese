@@ -117,6 +117,17 @@ def respond(runtime, message, run_id, view_context=None):
                 "view_context": view_context.to_dict(),
                 "health": health,
                 "engine": provider.label,
+                "execution_summary": {
+                    "investigation_status": saved["status"],
+                    "has_saved_report": bool(report),
+                    "final_report_accepted": saved["status"] == "COMPLETED"
+                    and bool(report),
+                    "model_review_status": (report or {})
+                    .get("falsifier", {})
+                    .get("model_review", "not_recorded"),
+                }
+                if saved
+                else None,
                 "role_implementations": {
                     "Triage": "rules",
                     "Correlation": "rules",
@@ -139,6 +150,7 @@ def respond(runtime, message, run_id, view_context=None):
                         "owner",
                         "disposition",
                         "error",
+                        "investigation_scope",
                     )
                 }
                 if saved
@@ -157,6 +169,11 @@ def respond(runtime, message, run_id, view_context=None):
                 if saved
                 else None,
                 "available_recovery": {
+                    "investigate_source_host": bool(
+                        saved
+                        and saved.get("seed_event_id")
+                        and saved.get("investigation_scope") != "host"
+                    ),
                     "new_revision": "Run the whole investigation again with a new fixed snapshot after reviewing provider settings",
                     "retry_individual_role": False,
                     "saved_evidence_and_activity": True,
@@ -263,6 +280,9 @@ def respond(runtime, message, run_id, view_context=None):
                 schema=schema,
                 transport=getattr(provider, "transport", None),
                 max_input_bytes=65536,
+                # Validate the full chat contract locally; avoid fragile provider
+                # grammar compilation of optional presentation blocks.
+                json_mode=True,
                 system_prompt=(
                     "You are Blue Cheese's analyst assistant. Answer the user's actual question in clear natural language. "
                     "Use short paragraphs and bullets when there are several points. No dense status dumps or semicolon-joined sentences. "
@@ -275,10 +295,14 @@ def respond(runtime, message, run_id, view_context=None):
                     "HTTP response_length_bytes describes a response, not uploaded bytes. "
                     "Original timestamps include an offset. Use timestamp_utc when saying UTC; never relabel local times as UTC. "
                     "Do not claim Falsifier cleared the evidence or the investigation completed when its saved status is FAILED. "
+                    "Use execution_summary for completion claims. A completed accepted report remains accepted even when this chat selection omits its supporting citations. "
+                    "Missing citations in this selection limit what you can explain; they do not change the saved execution status or mean no final report was accepted. "
                     "The executable flow countertest and the model Falsifier review are separate operations; distinguish completed checks from failed model review. "
                     "Recommend only available recovery actions: this product supports New revision for the whole investigation, not retrying an individual role. "
+                    "A connection-scoped case excludes other destinations. When broader context is needed and available_recovery.investigate_source_host is true, suggest Investigate source host, which creates a separate bounded snapshot. "
                     "Evidence and operations remain saved even when no final report was accepted. "
                     "Always use presentation blocks (title, kind=paragraph or bullets, items) for readable paragraphs and lists; leave reply empty to avoid repeating text. Use plain text inside blocks, without Markdown markers. "
+                    "Translate internal status fields into plain language; do not echo JSON keys or raw evidence IDs in prose. Put record IDs only in the citations array. "
                     "Keep the answer under 250 words unless detail is requested. Return only JSON matching this schema: "
                     + json.dumps(schema)
                 ),
@@ -464,6 +488,18 @@ def respond(runtime, message, run_id, view_context=None):
                 result["action"] = "answer"
                 result["argument"] = ""
             else:
+                host_requested = bool(
+                    re.search(
+                        r"\b(?:investigate|analy[sz]e)\s+(?:(?:the|this|source|whole|entire)\s+)*host\b|\bhost\s+(?:context|investigation)\b",
+                        message,
+                        re.IGNORECASE,
+                    )
+                )
+                result["investigation_scope"] = (
+                    "host"
+                    if host_requested
+                    else saved.get("investigation_scope", "connection")
+                )
                 result["reply"] = result["reply"] or (
                     "Proposed follow-up: analyze this target using a new evidence snapshot. Previous findings stay available."
                 )

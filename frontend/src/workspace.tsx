@@ -97,6 +97,14 @@ export default function CaseWorkspace({
     if (result?.run_id) navigate("cases/" + result.run_id);
     else if (result) navigate("cases");
   }
+  async function investigateHost() {
+    const result = await act("cases", {
+      seed_event_id: saved?.seed_event_id,
+      investigation_scope: "host",
+    });
+    if (result?.run_id) navigate("cases/" + result.run_id);
+    else if (result) navigate("cases");
+  }
   if (!saved)
     return (
       <>
@@ -142,16 +150,34 @@ export default function CaseWorkspace({
             New revision
             <ArrowRight size={16} />
           </button>
+          {state === "FAILED" &&
+            saved.seed_event_id &&
+            saved.investigation_scope !== "host" && (
+              <button
+                className="secondary"
+                disabled={busy || status?.investigation_pending}
+                onClick={investigateHost}
+              >
+                Investigate source host
+                <ArrowRight size={16} />
+              </button>
+            )}
         </div>
       </div>
       <ErrorNotice message={resource.error} />
       <div className="scope-strip">
         <div>
-          <span className="micro">Target</span>
+          <span className="micro">
+            {saved.investigation_scope === "host"
+              ? "Source host · ±5 minutes"
+              : "Target"}
+          </span>
           <strong className="mono">
-            {saved.pairs[0]
-              ? saved.pairs[0].source + " → " + saved.pairs[0].destination
-              : "Selected evidence"}
+            {saved.investigation_scope === "host"
+              ? saved.target_host
+              : saved.pairs[0]
+                ? saved.pairs[0].source + " → " + saved.pairs[0].destination
+                : "Selected evidence"}
           </strong>
         </div>
         <div>
@@ -1074,6 +1100,7 @@ function Chat({
             citations?: string[];
             action?: string;
             argument?: string;
+            investigation_scope?: "connection" | "host";
             view?: string;
           } = {};
           if (m.role === "assistant") {
@@ -1124,6 +1151,14 @@ function Chat({
                 <div className="proposal">
                   <span className="micro">Proposed action</span>
                   <strong>{label(result.action)}</strong>
+                  {result.action === "investigate" &&
+                    result.investigation_scope && (
+                      <span className="micro">
+                        {result.investigation_scope === "host"
+                          ? "Source host across destinations · separate frozen snapshot"
+                          : "Connection scope · new revision"}
+                      </span>
+                    )}
                   {result.argument && <p>{result.argument}</p>}
                   <button
                     className="primary"

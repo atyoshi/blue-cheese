@@ -269,6 +269,7 @@ class TerminalSession:
         transport=None,
         max_input_bytes=None,
         system_prompt=None,
+        json_mode=None,
     ):
         """Validated task planning shared by terminal and GUI; executes nothing."""
         provider = self.runtime.provider
@@ -339,7 +340,7 @@ class TerminalSession:
                 {"role": "user", "content": message},
             ],
             "response_format": {"type": "json_object"}
-            if provider.json_mode
+            if (provider.json_mode if json_mode is None else json_mode)
             else {
                 "type": "json_schema",
                 "json_schema": {

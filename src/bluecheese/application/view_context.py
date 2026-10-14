@@ -231,12 +231,15 @@ def retrieve_view(runtime, view, saved, *, max_calls=6):
             tools.call("get_event", event_id=event_id)
     elif saved and saved.get("seed_event_id"):
         tools.call("get_event", event_id=saved["seed_event_id"])
-        tools.call(
-            "find_related_events",
-            seed_id=saved["seed_event_id"],
-            event_types=["flow", "http", "dns", "tls", "alert"],
-            limit=limit,
-        )
+        if saved.get("investigation_scope") == "host":
+            tools.call("find_host_context", seed_id=saved["seed_event_id"], limit=limit)
+        else:
+            tools.call(
+                "find_related_events",
+                seed_id=saved["seed_event_id"],
+                event_types=["flow", "http", "dns", "tls", "alert"],
+                limit=limit,
+            )
     else:
         tools.call("list_alerts", limit=limit)
     rows = list(tools.retrieved.values())

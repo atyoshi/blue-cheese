@@ -179,11 +179,18 @@ class DemoRuntime:
         scenario,
         variant,
         *,
-        question="What does the observed alert and related flow evidence support?",
+        question=None,
         parent_run_id=None,
         seed_event_id=None,
+        investigation_scope="connection",
         **settings,
     ):
+        if question is None:
+            question = (
+                "Assess the selected source host's combined network behavior, plausible alternatives and observed impact."
+                if investigation_scope == "host"
+                else "What does the observed alert and related flow evidence support?"
+            )
         if not self.run_lock.acquire(blocking=False):
             raise RuntimeError("An investigation is already active; cancel it or wait")
         run = None
@@ -205,6 +212,7 @@ class DemoRuntime:
                     question,
                     parent_run_id,
                     seed_event_id=seed_event_id,
+                    investigation_scope=investigation_scope,
                 )
                 self.active_run_id = run["run_id"]
                 self.activity.bind(run["run_id"])
@@ -219,6 +227,7 @@ class DemoRuntime:
                 variant,
                 cancel_event=self.cancel_event,
                 seed_event_id=seed_event_id,
+                investigation_scope=investigation_scope,
                 question=question,
                 activity_callback=self.activity.emit,
                 synthetic=self.practice

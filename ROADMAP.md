@@ -8,6 +8,16 @@ and dark themes, linked evidence visuals, actual activity, contextual chat, and
 analyst decisions share one component system. Demonstrations follow README.md.
 See docs/TESTING.md and docs/UI_UX_REVIEW.md for checks and remaining validation.
 
+# Host investigations and factual recovery — 2026-10-14
+
+The application alert workflow now offers an explicit source-host investigation
+across destinations within a same-source/sensor five-minute snapshot. Existing
+connection cases and revisions preserve scope. Diverse bounded protocol retrieval
+supplies the surrounding sequence without inventing causal links. Numeric/text
+fact schemas match source types; one retrieved-fact correction shares the global
+provider budget and preserves independent review. Unseen citations remain terminal.
+This is platform behavior, independent of capture labels or evaluator answers.
+
 # Implementation roadmap
 
 ## Investigation assessment increment — 2026-10-14
@@ -52,7 +62,7 @@ shared deployment and commercial/detection-quality validation remain deferred.
 | Package | Implemented slice / remaining boundary |
 | --- | --- |
 | W05 | Atomic additive migration from prior evidence-only schema; checksums/future versions checked. No destructive migration introduced. |
-| W08 | Scoped snapshot membership with copied raw/parsed/normalized interpretations, digest and revisions; maximum 10,000 members. Cases support selected-alert same-source/time/endpoint neighborhoods or whole-scope snapshots; manual membership editing remains pending. |
+| W08 | Scoped snapshot membership with copied raw/parsed/normalized interpretations, digest and revisions; maximum 10,000 members. Cases support selected-alert same-source/time/endpoint or explicit source-host neighborhoods, or whole-scope snapshots; manual membership editing remains pending. |
 | W11–W12 | Candidate shape/citation checks, delivery byte cap, retrieved-ID registry, snapshot-aware bundles with checksums and offline verifier. Mechanical validity is separate from semantic support. |
 | W17 | Exclusive state-directory lock, bounded database queue, one owning thread and single active provider run. |
 | W18 | Durable run/tool records, restart interruption marking, controlled successor retries and cooperative cancellation. Atomic alert enqueue and explicit retry after interrupted work added; one runtime claims tasks. No distributed leases. |

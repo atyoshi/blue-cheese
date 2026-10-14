@@ -78,6 +78,7 @@ class WorkerStore:
             "list_alerts",
             "find_events_by_ip",
             "find_related_events",
+            "find_host_context",
             "telemetry_coverage",
             "search_events",
         }

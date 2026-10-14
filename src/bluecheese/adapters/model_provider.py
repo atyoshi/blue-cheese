@@ -131,6 +131,18 @@ def request_completion(profile, payload, timeout):
         with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
             body = response.read(131073)
     except HTTPError as error:
+        if error.code == 500:
+            try:
+                detail = json.loads(error.read(8192))
+                if (
+                    detail.get("error", {}).get("message")
+                    == "The model produced output that does not match the expected peg-native format"
+                ):
+                    raise RuntimeError(
+                        "Model provider output parser rejected its generated response (HTTP 500); ask the provider operator to review model/template compatibility"
+                    ) from None
+            except (ValueError, AttributeError, OSError):
+                pass
         raise RuntimeError(
             f"Model provider returned HTTP {error.code}; response body withheld"
         ) from None

@@ -393,9 +393,8 @@ def test_reading_model_schema_cannot_propose_actions(tmp_path):
     try:
 
         def transport(profile, payload, timeout):
-            assert payload["response_format"]["json_schema"]["schema"]["properties"][
-                "action"
-            ]["enum"] == ["answer"]
+            assert payload["response_format"] == {"type": "json_object"}
+            assert '"enum": ["answer"]' in payload["messages"][0]["content"]
             return complete(
                 {
                     "action": "answer",
@@ -415,6 +414,24 @@ def test_reading_model_schema_cannot_propose_actions(tmp_path):
         ):
             answer = runtime.begin_chat(question).result(5)
             assert not answer.get("error")
+
+        def invalid_action(*_):
+            return complete(
+                {
+                    "action": "investigate",
+                    "argument": "",
+                    "reply": "Unrequested action",
+                    "citations": [],
+                }
+            )
+
+        runtime.configure_provider(
+            AgentModelProvider(
+                ModelProfile("http://localhost/v1", "mock"), invalid_action
+            )
+        )
+        rejected = runtime.begin_chat("Summarize with natural language").result(5)
+        assert rejected["error"] and rejected["error_kind"] == "validation"
         assert runtime.investigation_runs == 0
     finally:
         runtime.close()
@@ -514,7 +531,7 @@ def test_incorrect_field_association_fails_the_full_model_pipeline(evidence):
                 ModelProfile("http://localhost/v1", "mock"), transport
             ),
         )
-    assert len(requests) == 1
+    assert len(requests) == 2
 
 
 def test_coverage_window_uses_portable_utc_timestamps(evidence):

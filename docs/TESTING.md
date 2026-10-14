@@ -47,7 +47,12 @@ failed-request diagnostics and constrained conversational reading. See
 [the workflow verification](ANALYST_WORKFLOW_VERIFICATION.md) for what these checks
 establish and what still requires semantic review.
 
-Measured on macOS/Python 3.13: 210 Python tests and 17 Chromium tests passed.
+Measured on macOS/Python 3.13: 224 Python tests and 18 Chromium tests passed.
 TypeScript, Ruff, Prettier and dependency checks passed; initial JavaScript is
-100.9 KiB gzip. Live-provider results and their limits are recorded in
+101.0 KiB gzip. Live-provider results and their limits are recorded in
 [session status](SESSION_STATUS.md).
+
+Host-scope regressions use synthetic evidence to check scope isolation, diverse
+retrieval before limits, cross-destination context delivery and bounded factual
+correction with independent review. The ordinary API/browser journey verifies
+starting a host case and preserving its scope across revisions.

@@ -1,3 +1,60 @@
+# Application host investigations and factual recovery — 2026-10-14
+
+This increment changes the actual evidence store, investigation runtime, provider
+loop, API, contextual chat and React alert workflow. **Investigate source host**
+freezes a separate same-source/sensor, five-minute host snapshot across destinations.
+Connection cases and revisions preserve their scope. The alert drawer, case target
+and explicit chat proposals carry the scope; executing a host proposal requires
+the normal confirmation and does not mutate the existing connection case.
+Migration 9 records scope while preserving migrations 1–8 and historical reports.
+
+A diverse bounded host-context tool surfaces distinct protocol/destination/path
+observations before repeated requests. Context remains separate from strict-flow
+correlation, uses frozen membership and reaches model inputs and evidence exports.
+Host questions ask about combined behavior. Capture labels and evaluator reference
+answers remain excluded; there is no capture-specific verdict or alternate runtime.
+
+Field-specific numeric/text fact schemas fix an output-contract mismatch. Up to
+six relevant citations support a combined finding. One retrieved-fact correction
+per stage shares existing global attempt/time limits, reserves independent review,
+records the original rejection and revalidates the entire replacement. Persistently
+wrong facts and unseen citations still fail. Chat receives explicit report
+completion truth so a selected record cannot imply the accepted report is absent.
+
+Measured checks: **224 Python tests passed**, **18 Chromium tests passed**, Ruff,
+TypeScript/build, Prettier, pip consistency and whitespace checks passed. Initial
+JavaScript is **101.0 KiB gzip**. Existing 14 visual baselines remain unchanged.
+One Starlette test-client deprecation warning remains.
+
+Two live host investigations using the same Grain model completed and retained
+**MALICIOUS_ACTIVITY** after independent review. The first used six model requests
+and took 723.8 seconds, including schema correction. The final typed-schema run
+used an explicit two-request limit and took 461.3 seconds; both roles passed on
+the first request. Its cited findings distinguish GET download, POST credentials
+and GET protocol switch with correct numeric facts. Endpoint execution and theft
+are not established by these fields. The frozen host scope held 1,076 records,
+72 pairs and 64 HTTP records; the provider received a bounded sample.
+
+Manual review still found overstatement and reversed direction in the unverified
+hypothesis, plus a completion-status error in the first run's record-scoped chat.
+Prompts/context address these; arbitrary prose correctness and false-positive rates
+remain unproven. Three strict-schema chat rechecks returned HTTP 500 with a native
+provider output-parser mismatch. A JSON-object compatibility check passed (44.6
+seconds), including accepted completion and the selected GET/status/response-byte
+facts. GUI chat now uses JSON-object responses with full local validation; report
+roles and CLI format settings retain their configured behavior. Known native-parser
+errors have an allowlisted diagnostic without exposing arbitrary error bodies.
+A final updated-application chat check passed in 60.9 seconds with accepted status
+and correct selected-record facts. External parser reliability remains a provider
+validation boundary; automatic HTTP/timeout retries were not added. These successful runs establish this measured behavior, not
+enterprise readiness, commercial performance or general detection accuracy.
+See [workflow verification](ANALYST_WORKFLOW_VERIFICATION.md) for exact scope,
+remaining semantic limits and ignored local artifact locations. Earlier sections
+below are historical. Docker, shared hosting/authentication, human completion/time
+savings and sustained capacity remain separate validation/release work.
+
+---
+
 # Grounded investigations and readable analyst workflow — 2026-10-14
 
 Implemented the system-wide analyst readability and reliability increment. Chat

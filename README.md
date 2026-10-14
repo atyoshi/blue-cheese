@@ -512,6 +512,26 @@ attribution errors and took 472–648 seconds per run. This is case-specific
 validation, not detection accuracy or commercial readiness. Shared team hosting
 remains separate release work.
 
+## Choosing an investigation scope
+
+From **Alerts → Alert details**, **Investigate** reviews the selected directed
+endpoint pair. **Investigate source host** creates a separate case containing
+traffic to and from the source host across destinations, from the same evidence
+source within five minutes of the alert. Both freeze membership before execution.
+**New revision** preserves the case scope. A failed connection case also offers
+**Investigate source host** when broader context is needed.
+
+Host investigations retrieve a bounded, diverse protocol sample so repeated
+requests cannot crowd out other destinations and HTTP paths. These observations
+are temporal host context; they are not automatically causal links. The model
+assesses the combined behavior separately from confirmed endpoint impact. Known
+capture labels and evaluator reference answers never enter provider inputs.
+
+One conflicting source fact can receive an evidence-grounded correction within
+the existing call/time budget, after the original response is rejected. A second
+conflict fails the run. Invented or unseen citations still fail immediately, and
+independent model review must complete before a final report is accepted.
+
 ## Reading findings and asking questions
 
 Case details separate **Open questions** about the selected evidence from actual
@@ -520,6 +540,9 @@ and standard limitations are available under **How to interpret findings**, rath
 than repeated in each case.
 
 Chat presents answers as paragraphs and lists, with separate evidence citations.
+Conversational chat requests JSON-object responses and validates the full action,
+citation and presentation contract locally. Investigation roles retain their
+configured strict structured-output mode.
 “Summarize this case” uses the case snapshot even after inspecting an individual
 record. Questions about a selected record retain that selection. Reading questions
 cannot launch work; requested actions remain explicit proposals. If a model answer
@@ -751,8 +774,8 @@ TMPDIR="$HOME/bluecheese-test-tmp" .venv/bin/python -m pytest -q
 Tests use temporary state, offline fixtures and deterministic polling, with no
 real models/API keys. Local Suricata integration runs when available; otherwise
 it skips. Unix socket tests need permission to bind local sockets. The current
-macOS/Python 3.13 verification passed 210 Python tests
-and 17 Chromium browser tests, including local Suricata PCAP/stream integration
+macOS/Python 3.13 verification passed 224 Python tests
+and 18 Chromium browser tests, including local Suricata PCAP/stream integration
 and the alert-to-decision journey. See the
 [analyst workflow verification](docs/ANALYST_WORKFLOW_VERIFICATION.md) for current checks and live-provider limits. The earlier [README verification record](docs/README_VERIFICATION.md) records the walkthrough scope. Earlier native Linux/Python 3.14.7
 checks are recorded in [session status](docs/SESSION_STATUS.md).

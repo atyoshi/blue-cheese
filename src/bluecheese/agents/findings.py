@@ -13,6 +13,14 @@ ACTIVITY = [
     "BENIGN_EXPLANATION",
     "INSUFFICIENT_EVIDENCE",
 ]
+
+
+class SourceFactConflict(ValueError):
+    def __init__(self, evidence_id, field, expected):
+        self.evidence_id, self.field, self.expected = evidence_id, field, expected
+        super().__init__("Source fact conflicts with retrieved observation: " + field)
+
+
 DETAILS_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -89,7 +97,7 @@ def extended_schema(base):
     schema["properties"]["claims"]["maxItems"] = 2
     claim = schema["properties"]["claims"]["items"]
     claim["properties"]["text"]["maxLength"] = 256
-    claim["properties"]["citations"].update(minItems=1, maxItems=3)
+    claim["properties"]["citations"].update(minItems=1, maxItems=6)
     claim["properties"].update(
         proposition_type={"type": "string", "enum": ["observation", "inference"]},
         limitations={
@@ -103,34 +111,38 @@ def extended_schema(base):
             "items": {"type": "string"},
         },
     )
+    # Discriminated branches prevent numeric facts being emitted as quoted strings.
+    numeric_fields = ["src_port", "dest_port", "status", "response_length_bytes"]
+    text_fields = [
+        "timestamp",
+        "timestamp_utc",
+        "src_ip",
+        "dest_ip",
+        "event_type",
+        "protocol",
+        "http_method",
+        "url",
+    ]
     claim["properties"]["facts"] = {
         "type": "array",
         "maxItems": 2,
         "items": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "evidence_id": {"type": "string", "maxLength": 256},
-                "field": {
-                    "type": "string",
-                    "enum": [
-                        "timestamp",
-                        "timestamp_utc",
-                        "src_ip",
-                        "dest_ip",
-                        "src_port",
-                        "dest_port",
-                        "event_type",
-                        "protocol",
-                        "http_method",
-                        "url",
-                        "status",
-                        "response_length_bytes",
-                    ],
-                },
-                "value": {"type": ["string", "integer"], "maxLength": 2048},
-            },
-            "required": ["evidence_id", "field", "value"],
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "evidence_id": {"type": "string", "maxLength": 256},
+                        "field": {"type": "string", "enum": fields},
+                        "value": value_schema,
+                    },
+                    "required": ["evidence_id", "field", "value"],
+                }
+                for fields, value_schema in (
+                    (numeric_fields, {"type": "integer"}),
+                    (text_fields, {"type": "string", "maxLength": 2048}),
+                )
+            ]
         },
     }
     claim["required"] += ["proposition_type", "limitations", "contradicting_ids"]
@@ -181,9 +193,7 @@ def validate_facts(report, tools):
                 or type(actual) is not type(fact["value"])
                 or actual != fact["value"]
             ):
-                raise ValueError(
-                    "Source fact conflicts with retrieved observation: " + field
-                )
+                raise SourceFactConflict(event_id, field, actual)
 
 
 def validate_findings(report, tools):

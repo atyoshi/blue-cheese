@@ -558,13 +558,15 @@ function Alerts({
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  async function investigate(group: AlertGroup) {
+  async function investigate(group: AlertGroup, host = false) {
     setActionBusy(true);
     const result = await act(
       "cases",
-      group.run_id
-        ? { parent_run_id: group.run_id }
-        : { seed_event_id: group.seed_ids[0] },
+      host
+        ? { seed_event_id: group.seed_ids[0], investigation_scope: "host" }
+        : group.run_id
+          ? { parent_run_id: group.run_id }
+          : { seed_event_id: group.seed_ids[0] },
     );
     setActionBusy(false);
     if (result) {
@@ -784,8 +786,16 @@ function Alerts({
                 <dd>{time(selected.last_seen)}</dd>
               </div>
               <div>
-                <dt>Scope</dt>
-                <dd>Same source and directed pair · ±5 minutes</dd>
+                <dt>
+                  {selected.run_id
+                    ? "Existing case scope"
+                    : "Connection review scope"}
+                </dt>
+                <dd>
+                  {selected.investigation_scope === "host"
+                    ? "Source host across destinations · ±5 minutes"
+                    : "Same source and directed pair · ±5 minutes"}
+                </dd>
               </div>
             </dl>
             <p className="micro">
@@ -818,6 +828,23 @@ function Alerts({
                   <ArrowRight size={16} />
                 </button>
               )}
+              <button
+                disabled={
+                  busy ||
+                  actionBusy ||
+                  status?.investigation_pending ||
+                  !selected.seed.normalized.src_ip
+                }
+                onClick={() => investigate(selected, true)}
+              >
+                Investigate source host
+                <ArrowRight size={16} />
+              </button>
+              <p className="micro">
+                Host investigation includes traffic to and from the source host
+                across destinations, from this source within ±5 minutes. It
+                creates a separate case snapshot.
+              </p>
               <button
                 onClick={() => {
                   const g = selected;

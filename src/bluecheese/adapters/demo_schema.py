@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS decision_advice (
 CREATE TABLE IF NOT EXISTS provider_diagnostics (
     run_id VARCHAR PRIMARY KEY, activity VARCHAR);
 """,
+    9: """
+ALTER TABLE run_context ADD COLUMN investigation_scope VARCHAR DEFAULT 'connection';
+""",
 }
 
 

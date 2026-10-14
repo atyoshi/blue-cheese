@@ -15,7 +15,7 @@ and limitations. These are model assessments requiring review; citation checks
 establish retrieval provenance, not semantic truth.
 
 The model supplies one activity decision; software derives the legacy verdict
-from that field. Compact model outputs allow up to three findings and two next
+from that field. Compact model outputs allow up to two findings and two next
 checks. This avoids contradictory duplicate assessments and bounds report size.
 
 A table of protocol fields from retrieved source records precedes the unverified
@@ -40,6 +40,33 @@ Before model delivery, HTTP `length` is exposed as `response_length_bytes`, base
 on the [Suricata 8.0.7 response-length implementation](https://github.com/OISF/suricata/blob/suricata-8.0.7/src/output-json-http.c#L287-L288).
 It does not establish request-upload size or payload contents. This model-input
 projection preserves stored interpretations and existing bundle verification.
+
+## Host context in the application
+
+The normal alert drawer offers **Investigate source host**, alongside the existing
+connection review. This freezes a separate, same-source/sensor, five-minute host
+snapshot across destinations; existing cases and their revisions preserve their
+original scope. The API accepts `investigation_scope: "host"` with a selected
+alert. Migration 9 records scope, defaulting historical runs to `connection`.
+
+The `find_host_context` tool filters by authorized snapshot membership, source,
+sensor, host and time before applying its limit. A classification-independent
+ranking balances protocol types and distinct endpoint/method/path/query contexts.
+Host observations remain separate from exact-flow correlation and are prioritized
+in bounded model context. They also reach reporting, evidence export and contextual
+chat through the normal runtime. No sample-specific classification rule or demo
+route is involved.
+
+A retrieved fact conflict rejects the candidate and records `SOURCE_FACT_ERROR`.
+At most one correction per model stage supplies the cited field's actual value as
+untrusted evidence. It shares the existing global provider budget, reserves an
+independent Falsifier attempt and revalidates the entire replacement assessment.
+Schema/truncation correction retains its separate one-attempt cap. Numeric fact
+fields use an integer branch of the schema; textual fields use a string branch,
+so the output contract matches the source validator. Combined findings may cite
+up to six directly relevant records without failing on an arbitrary three-ID cap. Unseen citation
+errors remain terminal. This permits recovery from a transcription error without
+accepting the conflicting candidate or treating a correction as verified prose.
 
 ## Optional advice
 

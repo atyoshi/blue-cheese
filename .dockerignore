@@ -13,6 +13,9 @@ bluecheese-data
 bluecheese-operations
 demo-exports
 telemetry
+build
+dist
+/config.json
 
 frontend/node_modules
 frontend/test-results

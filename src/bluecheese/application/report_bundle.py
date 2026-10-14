@@ -41,6 +41,7 @@ def reference_ids(report):
         ids.update(candidate["seed_ids"])
     for correlation in report.get("correlation", []):
         ids.update(correlation["member_ids"])
+    ids.update(report.get("workflow", {}).get("context_ids", []))
     return ids
 
 

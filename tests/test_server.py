@@ -40,6 +40,42 @@ def run_case(client):
     return report["run_id"], event_id
 
 
+def test_host_case_api_is_explicit_and_revisions_keep_scope(client):
+    event_id = seed(client)
+    response = client.post(
+        "/api/v1/cases", json={"seed_event_id": event_id, "investigation_scope": "host"}
+    )
+    assert response.status_code == 200, response.text
+    report = client.app.state.runtime.pending_run.result(10)
+    saved = client.get("/api/v1/cases/" + report["run_id"]).json()
+    assert saved["investigation_scope"] == "host"
+    assert saved["target_host"] == "10.1.17.215"
+    groups = client.get("/api/v1/alerts").json()["groups"]
+    assert (
+        next(group for group in groups if group["run_id"] == report["run_id"])[
+            "investigation_scope"
+        ]
+        == "host"
+    )
+    assert any(call["tool"] == "find_host_context" for call in saved["tool_activity"])
+    assert (
+        client.post(
+            "/api/v1/cases",
+            json={
+                "parent_run_id": saved["run_id"],
+                "investigation_scope": "connection",
+            },
+        ).status_code
+        == 400
+    )
+    response = client.post("/api/v1/cases", json={"parent_run_id": saved["run_id"]})
+    assert response.status_code == 200, response.text
+    revision = client.app.state.runtime.pending_run.result(10)
+    next_saved = client.get("/api/v1/cases/" + revision["run_id"]).json()
+    assert next_saved["investigation_scope"] == "host"
+    assert next_saved["case_id"] == saved["case_id"]
+
+
 def test_api_alert_to_decision_restart_and_export(client, tmp_path):
     run_id, event_id = run_case(client)
     base = "/api/v1/cases/" + run_id
@@ -269,6 +305,50 @@ def test_proposals_are_server_owned_and_cannot_be_replayed(client):
     runtime.pending_run.result(10)
     assert client.post("/api/v1/proposals", json=body).status_code == 400
     assert runtime.investigation_runs == 2
+
+
+def test_explicit_host_chat_proposal_starts_a_host_case_only_after_confirmation(client):
+    from test_analyst_accuracy import complete
+
+    run_id, _ = run_case(client)
+    runtime = client.app.state.runtime
+    before = runtime.investigation_runs
+    runtime.configure_provider(
+        AgentModelProvider(
+            ModelProfile("http://localhost/v1", "mock"),
+            lambda *_: complete(
+                {
+                    "action": "investigate",
+                    "argument": "",
+                    "reply": "Proposed host investigation.",
+                    "citations": [],
+                }
+            ),
+        )
+    )
+    assert (
+        client.post(
+            "/api/v1/chat",
+            json={"run_id": run_id, "message": "Investigate source host"},
+        ).status_code
+        == 200
+    )
+    proposal = runtime.pending_chat.result(10)
+    assert proposal["investigation_scope"] == "host"
+    assert runtime.investigation_runs == before
+    message = client.get("/api/v1/chat?run_id=" + run_id).json()["messages"][-1]
+    runtime.configure_provider(None)
+    response = client.post(
+        "/api/v1/proposals",
+        json={"run_id": run_id, "created_at": message["created_at"]},
+    )
+    assert response.status_code == 200, response.text
+    report = runtime.pending_run.result(10)
+    old = client.get("/api/v1/cases/" + run_id).json()
+    new = client.get("/api/v1/cases/" + report["run_id"]).json()
+    assert new["investigation_scope"] == "host"
+    assert old["investigation_scope"] == "connection"
+    assert new["case_id"] != old["case_id"]
 
 
 def test_source_validation_and_polling_owner(client):

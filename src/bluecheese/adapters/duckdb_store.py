@@ -142,11 +142,15 @@ class EvidenceStore:
         newest_first=False,
         snapshot_id=None,
         related_first=False,
+        diverse_first=False,
     ):
         table = "snapshot_evidence" if snapshot_id else "evidence"
         membership = "snapshot_id=? AND " if snapshot_id else ""
-        rows = self.db.execute(
-            "SELECT seq,id,source,position,raw,parsed,normalized FROM "
+        select = "SELECT seq,id,source,position,raw,parsed,normalized FROM "
+        if diverse_first:
+            select = """WITH scoped AS (SELECT * FROM """
+        sql = (
+            select
             + table
             + " "
             + "WHERE "
@@ -154,12 +158,29 @@ class EvidenceStore:
             + "scenario=? AND variant=? AND seq<=? AND "
             + clause
             + (
-                " ORDER BY CASE event_type WHEN 'flow' THEN 0 WHEN 'http' THEN 1 WHEN 'dns' THEN 2 WHEN 'tls' THEN 3 ELSE 4 END,seq LIMIT ?"
+                """), distinct_context AS (
+                    SELECT *,row_number() OVER (
+                        PARTITION BY event_type,src_ip,dest_ip,
+                        json_extract_string(normalized,'$.protocol_details.http_method'),
+                        json_extract_string(normalized,'$.protocol_details.url'),
+                        json_extract_string(normalized,'$.protocol_details.queries'),
+                        json_extract_string(normalized,'$.protocol_details.sni')
+                        ORDER BY seq) AS duplicate_rank FROM scoped), ranked AS (
+                    SELECT *,row_number() OVER (PARTITION BY event_type
+                        ORDER BY duplicate_rank,seq) AS protocol_rank FROM distinct_context)
+                    SELECT seq,id,source,position,raw,parsed,normalized FROM ranked
+                    ORDER BY protocol_rank,CASE event_type WHEN 'http' THEN 0
+                        WHEN 'flow' THEN 1 WHEN 'dns' THEN 2 WHEN 'tls' THEN 3 ELSE 4 END,seq LIMIT ?"""
+                if diverse_first
+                else " ORDER BY CASE event_type WHEN 'flow' THEN 0 WHEN 'http' THEN 1 WHEN 'dns' THEN 2 WHEN 'tls' THEN 3 ELSE 4 END,seq LIMIT ?"
                 if related_first
                 else " ORDER BY seq DESC LIMIT ?"
                 if newest_first
                 else " ORDER BY seq LIMIT ?"
-            ),
+            )
+        )
+        rows = self.db.execute(
+            sql,
             [
                 *([snapshot_id] if snapshot_id else []),
                 scenario,
@@ -272,6 +293,39 @@ class EvidenceStore:
             limit,
             snapshot_id=snapshot_id,
             related_first=True,
+        )
+
+    def find_host_context(
+        self, scenario, variant, snapshot, seed_id, limit=24, *, snapshot_id=None
+    ):
+        """Diverse host observations inside the authorized snapshot, never causal links."""
+        seed = self.get_event(
+            scenario, variant, snapshot, seed_id, snapshot_id=snapshot_id
+        )
+        if seed is None or not seed["normalized"].get("src_ip"):
+            raise ValueError("Host-context seed is outside the fixed snapshot")
+        n = seed["normalized"]
+        timestamp = datetime.fromisoformat(n["timestamp"])
+        if timestamp.tzinfo is None:
+            raise ValueError("Host context requires a timezone-aware seed")
+        return self.query(
+            scenario,
+            variant,
+            snapshot,
+            """source=? AND json_extract_string(normalized,'$.sensor') IS NOT DISTINCT FROM ?
+                AND (src_ip=? OR dest_ip=?)
+                AND abs(epoch(try_cast(json_extract_string(normalized,'$.timestamp') AS TIMESTAMPTZ))-?)<=300
+                AND event_type IN ('http','flow','dns','tls')""",
+            [
+                seed["source"],
+                n.get("sensor"),
+                n["src_ip"],
+                n["src_ip"],
+                timestamp.timestamp(),
+            ],
+            limit,
+            snapshot_id=snapshot_id,
+            diverse_first=True,
         )
 
     def record_provider(self, run_id, activity):
@@ -638,6 +692,7 @@ class EvidenceStore:
         parent_run_id=None,
         max_members=10000,
         seed_event_id=None,
+        investigation_scope="connection",
     ):
         """Freeze current scoped interpretations and create durable pending work atomically."""
         if (
@@ -648,7 +703,13 @@ class EvidenceStore:
             raise ValueError(
                 "Case question must be nonempty and at most 4096 characters"
             )
+        if investigation_scope not in ("connection", "host"):
+            raise ValueError("Investigation scope must be connection or host")
+        if investigation_scope == "host" and not seed_event_id:
+            raise ValueError("Host investigation requires a selected alert")
         identity = [scenario, variant, question]
+        if investigation_scope == "host":
+            identity.append("host")
         if seed_event_id:
             identity.append(seed_event_id)
         case_id = hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:24]
@@ -658,7 +719,7 @@ class EvidenceStore:
         try:
             if parent_run_id:
                 parent = self.db.execute(
-                    "SELECT r.case_id,r.status,s.scenario,s.variant,rc.seed_event_id FROM runs r JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=?",
+                    "SELECT r.case_id,r.status,s.scenario,s.variant,rc.seed_event_id,rc.investigation_scope FROM runs r JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=?",
                     [parent_run_id],
                 ).fetchone()
                 if (
@@ -666,6 +727,7 @@ class EvidenceStore:
                     or parent[1] == "RUNNING"
                     or tuple(parent[2:4]) != (scenario, variant)
                     or parent[4] != seed_event_id
+                    or (parent[5] or "connection") != investigation_scope
                 ):
                     raise ValueError(
                         "Parent run must be a terminal run in the same case"
@@ -684,22 +746,36 @@ class EvidenceStore:
                 if not seed or seed["normalized"]["event_type"] != "alert":
                     raise ValueError("Select an alert in the current external scope")
                 n = seed["normalized"]
+                if investigation_scope == "host" and not n.get("src_ip"):
+                    raise ValueError("Host investigation requires a source IP")
                 timestamp = datetime.fromisoformat(n["timestamp"])
                 if timestamp.tzinfo is None:
                     raise ValueError(
                         "Scoped investigation requires a timezone-aware alert"
                     )
                 # Same source generation, directional endpoints and a five-minute window.
-                member_where += " AND source=? AND (id=? OR (src_ip=? AND dest_ip=? AND abs(epoch(try_cast(json_extract_string(normalized, '$.timestamp') AS TIMESTAMPTZ)) - ?) <= 300))"
+                endpoints = (
+                    "(src_ip=? OR dest_ip=?)"
+                    if investigation_scope == "host"
+                    else "(src_ip=? AND dest_ip=?)"
+                )
+                member_where += (
+                    " AND source=? AND (id=? OR ("
+                    + endpoints
+                    + " AND abs(epoch(try_cast(json_extract_string(normalized, '$.timestamp') AS TIMESTAMPTZ)) - ?) <= 300))"
+                )
                 member_args.extend(
                     [
                         seed["source"],
                         seed_event_id,
                         n["src_ip"],
-                        n["dest_ip"],
+                        n["src_ip"] if investigation_scope == "host" else n["dest_ip"],
                         timestamp.timestamp(),
                     ]
                 )
+                if investigation_scope == "host":
+                    member_where += " AND json_extract_string(normalized,'$.sensor') IS NOT DISTINCT FROM ?"
+                    member_args.append(n.get("sensor"))
             members = self.db.execute(
                 "SELECT id,normalized FROM evidence WHERE "
                 + member_where
@@ -760,13 +836,18 @@ class EvidenceStore:
                 [run_id, case_id, snapshot_id, parent_run_id, created],
             )
             self.db.execute(
-                "INSERT INTO run_context VALUES (?, ?)", [run_id, seed_event_id]
+                "INSERT INTO run_context (run_id,seed_event_id,investigation_scope) VALUES (?, ?, ?)",
+                [run_id, seed_event_id, investigation_scope],
             )
             title = question[:180]
             if seed_event_id:
                 title = f"{n.get('src_ip') or 'Unknown endpoint'} → {n.get('dest_ip') or '?'} · {n.get('alert_signature') or 'Alert review'}"[
                     :240
                 ]
+                if investigation_scope == "host":
+                    title = f"{n['src_ip']} · Host investigation · {n.get('alert_signature') or 'Alert review'}"[
+                        :240
+                    ]
             self.db.execute(
                 "INSERT INTO case_workspace VALUES (?, ?, '', 'OPEN', ?) ON CONFLICT DO NOTHING",
                 [case_id, title, created],
@@ -786,6 +867,7 @@ class EvidenceStore:
             "parent_run_id": parent_run_id,
             "created_at": created,
             "seed_event_id": seed_event_id,
+            "investigation_scope": investigation_scope,
         }
 
     def record_tool(self, run_id, activity):
@@ -877,7 +959,7 @@ class EvidenceStore:
 
     def get_run(self, scenario, variant, run_id):
         row = self.db.execute(
-            "SELECT r.status,r.report,r.error,s.question,s.snapshot_id,s.watermark,r.case_id,w.title,w.owner,w.disposition,rc.seed_event_id,r.created_at FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=? AND s.scenario=? AND s.variant=?",
+            "SELECT r.status,r.report,r.error,s.question,s.snapshot_id,s.watermark,r.case_id,w.title,w.owner,w.disposition,rc.seed_event_id,r.created_at,rc.investigation_scope FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id LEFT JOIN run_context rc ON rc.run_id=r.run_id WHERE r.run_id=? AND s.scenario=? AND s.variant=?",
             [run_id, scenario, variant],
         ).fetchone()
         if not row:
@@ -893,6 +975,11 @@ class EvidenceStore:
             "SELECT count(*),count(DISTINCT (src_ip,dest_ip)) FROM snapshot_evidence WHERE snapshot_id=?",
             [row[4]],
         ).fetchone()
+        seed = (
+            self.get_event(scenario, variant, row[5], row[10], snapshot_id=row[4])
+            if row[10]
+            else None
+        )
         return {
             "question": row[3],
             "snapshot_id": row[4],
@@ -903,6 +990,8 @@ class EvidenceStore:
             "disposition": row[9] or "OPEN",
             "seed_event_id": row[10],
             "created_at": row[11],
+            "investigation_scope": row[12] or "connection",
+            "target_host": seed["normalized"].get("src_ip") if seed else None,
             "workflow_activity": self.run_events(scenario, variant, run_id),
             "record_count": record_count,
             "pair_count": pair_count,
@@ -948,13 +1037,14 @@ class EvidenceStore:
             ]
             group["first_seen"], group["last_seen"] = min(times), max(times)
             recent = self.db.execute(
-                "SELECT r.run_id,r.status,s.watermark,w.disposition,w.owner FROM run_context rc JOIN runs r ON r.run_id=rc.run_id JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE rc.seed_event_id IN (SELECT unnest(?)) AND s.scenario=? AND s.variant=? ORDER BY r.created_at DESC LIMIT 1",
+                "SELECT r.run_id,r.status,s.watermark,w.disposition,w.owner,rc.investigation_scope FROM run_context rc JOIN runs r ON r.run_id=rc.run_id JOIN snapshots s ON s.snapshot_id=r.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE rc.seed_event_id IN (SELECT unnest(?)) AND s.scenario=? AND s.variant=? ORDER BY r.created_at DESC LIMIT 1",
                 [group["seed_ids"], scenario, variant],
             ).fetchone()
             group["run_id"] = recent[0] if recent else None
             group["run_status"] = recent[1] if recent else None
             group["disposition"] = recent[3] if recent else None
             group["owner"] = recent[4] if recent else None
+            group["investigation_scope"] = recent[5] if recent else "connection"
             group["new_alerts"] = (
                 self.db.execute(
                     "SELECT count(*) FROM evidence WHERE scenario=? AND variant=? AND seq>? AND id IN (SELECT unnest(?))",

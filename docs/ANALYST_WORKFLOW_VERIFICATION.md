@@ -29,7 +29,8 @@ Additional defects identified and corrected:
 - Live model review exceeded its 2,048-token output limit. Assessment schemas now
   bound individual fields and require compact output; one correction for schema
   or truncation errors shares the existing global attempt/time budget. Invalid
-  citations and conflicting source facts are rejected without repair. Subsequent
+  citations fail immediately; a conflicting retrieved source fact is rejected and
+  may receive one evidence-grounded correction within the existing global budget. Subsequent
   model context is bounded to 32 KiB, prioritizing selected and cited records.
 - Failed-case fallback summaries showed early workspace alerts before the target.
   They now retrieve the selected alert first and then related records; displayed
@@ -75,7 +76,9 @@ in the deterministic policy.
 Optional source fact bindings in model claims are checked against actual retrieved
 fields. Incorrect method/status/path/time/endpoint/value assertions fail even when
 the citation ID exists and was retrieved. A full provider-pipeline regression
-verifies rejection without an automatic repair of conflicting evidence.
+verifies that persistent conflicts fail after at most one factual correction.
+A separate runtime regression verifies successful correction, including a preceding
+schema correction, while retaining an independent Falsifier request.
 
 These checks do **not** prove arbitrary natural-language claims, intent, attack
 classification or model accuracy. A model can omit a binding or attach accurate
@@ -109,9 +112,15 @@ workflow.
 
 ## Measured validation
 
-The complete offline suite passed **210 Python tests** and **17 Chromium tests**.
+Current platform checks pass 224 Python tests and 18 Chromium tests. The initial
+connection-scoped live results below are historical; host-scope results follow
+in the platform scope correction section.
+
+### Initial live regression attempts
+
+The complete offline suite passed **224 Python tests** and **18 Chromium tests**.
 TypeScript/build, Ruff, Prettier, dependency consistency and whitespace checks
-passed. Initial JavaScript is **100.9 KiB gzip** against a 200 KiB budget.
+passed. Initial JavaScript is **101.0 KiB gzip** against a 200 KiB budget.
 
 Live Grain verification did not produce an accepted end-to-end investigation.
 Earlier requests demonstrated successful Investigator assessment and conversational
@@ -140,3 +149,66 @@ captures or live transcripts are added by this change.
 
 Browser baselines are reviewed macOS/Chromium captures; other browser engines, screen-reader
 certification, Docker execution and sustained production capacity are unverified.
+
+## Platform scope correction
+
+The earlier live test selected an IP-lookup alert and froze its DNS resolver pair.
+That excluded the host's HTTP retrieval/reporting sequence. The application now
+offers explicit host investigations with immutable scope, diverse bounded retrieval,
+unchanged strict-flow correlation and a separate case identity. Regressions cover
+cross-destination and reverse traffic, source/case/time isolation, late arrivals,
+repeated-request crowding, actual provider inputs and revision persistence through
+the normal API and browser workflow. The capture is an evaluator case, not a
+separate product path or a source of hardcoded malicious verdicts.
+
+Two live host investigations completed with the same Grain model and retained
+`MALICIOUS_ACTIVITY` after independent model review. The first took 723.8 seconds
+and six model requests, including one schema correction. A final run with the
+field-specific fact schema and an explicit two-request limit took 461.3 seconds;
+both role assessments passed on their first requests. The host snapshot contained
+1,076 records across 72 directed pairs, including 64 HTTP records. The provider
+received a bounded 24-record host context sample, not the complete capture.
+
+Manual review of the final claims confirmed the cited HTTP GET download from
+45.131.215.56 (1,032,012 response bytes), POST `/api/credentials`, GET
+`/api/shell/agent` with response status 101, and native numeric bindings. The
+model did not receive capture labels, reference answers or incident analysis.
+Successful compromise and theft remain unconfirmed by these source fields.
+
+The final unverified hypothesis still overstated compromise and reversed download
+direction, despite correct cited claims and an unconfirmed-impact description.
+Prompt guidance now explicitly requires provisional explanations and correct
+client/server download direction. These edits do not prove arbitrary prose is
+correct; further semantic review and benign controls remain necessary. The first
+completed run's record-scoped chat also incorrectly said no final report had been
+accepted. Chat now receives explicit execution truth independent of citation
+selection; an API/runtime regression covers that separation.
+
+The final two-request run demonstrates the supported call-limit setting, not
+default six-request latency or a throughput benchmark. Recorded timing is machine
+execution time, not human time saved or production readiness. Local artifacts:
+`build/verification/host-1792008483427927000/` and
+`build/verification/host-final-1792009274904403000/` (ignored, not distributed).
+
+### Conversational parser compatibility
+
+Three strict-schema record-chat rechecks returned HTTP 500. A private diagnostic
+identified the allowlisted server error: its native output parser rejected the
+generated response. Similar behavior is reported in
+[llama.cpp's structured-output parser issue](https://github.com/ggml-org/llama.cpp/issues/27279).
+The server version/configuration was not inspected, so this is a matching symptom,
+not proof of the exact upstream cause.
+
+A JSON-object compatibility request succeeded in 44.6 seconds and correctly
+reported accepted completion plus GET `/api/shell/agent`, status 101 and zero
+response bytes. Conversational GUI requests now use that format while retaining
+complete local schema/action/citation validation. Investigator/Falsifier and CLI
+format settings remain intact. A regression proves an unrequested investigation
+is rejected in JSON-object chat mode. Known parser errors receive an actionable
+message; arbitrary endpoint bodies remain withheld, tested independently.
+
+A final request through the updated application (provider strict mode left enabled
+for investigations) succeeded in 60.9 seconds. It correctly reported accepted
+completion and the selected GET/101/zero-response-byte record, without raw evidence
+IDs in the prose. This validates the application compatibility path for that
+request; it is not a guarantee that the external parser cannot fail again.

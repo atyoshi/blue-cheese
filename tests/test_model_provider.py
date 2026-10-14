@@ -1,7 +1,7 @@
 import json
 from io import BytesIO
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -9,6 +9,39 @@ from bluecheese.adapters.model_provider import ModelProfile, StructuredModelProv
 from bluecheese.application.demo_runtime import DemoRuntime
 
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        (
+            "The model produced output that does not match the expected peg-native format",
+            "output parser rejected",
+        ),
+        ("Private diagnostic body must never be displayed", "response body withheld"),
+    ],
+)
+def test_http_parser_diagnostic_is_allowlisted_without_exposing_response_body(
+    monkeypatch, message, expected
+):
+    from bluecheese.adapters.model_provider import request_completion
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            raise HTTPError(
+                "http://localhost/v1",
+                500,
+                "Error",
+                {},
+                BytesIO(json.dumps({"error": {"message": message}}).encode()),
+            )
+
+    monkeypatch.setattr(
+        "bluecheese.adapters.model_provider.build_opener", lambda *a: Opener()
+    )
+    with pytest.raises(RuntimeError, match=expected) as caught:
+        request_completion(ModelProfile("http://localhost/v1", "mock"), {}, 20)
+    assert "Private diagnostic" not in str(caught.value)
 
 
 @pytest.mark.parametrize(

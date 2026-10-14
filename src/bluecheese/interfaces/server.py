@@ -90,6 +90,7 @@ def start_case(runtime, data):
             "seed_event_id": text(128, 1),
             "parent_run_id": text(128, 1),
             "question": text(4096, 1),
+            "investigation_scope": {"type": "string", "enum": ["connection", "host"]},
         },
     )
     settings = {"max_calls": 8, "max_seconds": investigation_seconds(runtime.provider)}
@@ -99,14 +100,27 @@ def start_case(runtime, data):
             seed_event_id=prior["seed_event_id"],
             parent_run_id=prior["run_id"],
             question=data.get("question") or prior["question"],
+            investigation_scope=prior["investigation_scope"],
         )
+        if (
+            data.get("investigation_scope", prior["investigation_scope"])
+            != prior["investigation_scope"]
+        ):
+            raise ValueError(
+                "A revision preserves scope; start a new host investigation to expand it"
+            )
     elif data.get("seed_event_id"):
         event = runtime.command(
             "get_event", *SCOPE, runtime.command("snapshot"), data["seed_event_id"]
         )
         if not event or event["normalized"]["event_type"] != "alert":
             raise ValueError("Select an available alert")
+        if data.get("investigation_scope") == "host" and not event["normalized"].get(
+            "src_ip"
+        ):
+            raise ValueError("Host investigation requires a source IP")
         settings["seed_event_id"] = data["seed_event_id"]
+        settings["investigation_scope"] = data.get("investigation_scope", "connection")
         if data.get("question"):
             settings["question"] = data["question"]
     else:
@@ -484,11 +498,23 @@ def dispatch(request, data):
             action = result.get("action")
             argument = result.get("argument", "")
             if action == "investigate" and run_id:
+                prior = get_case(runtime, run_id)
+                proposed_scope = result.get(
+                    "investigation_scope", prior["investigation_scope"]
+                )
                 output = start_case(
                     runtime,
                     {
-                        "parent_run_id": run_id,
-                        "question": argument or get_case(runtime, run_id)["question"],
+                        **(
+                            {
+                                "seed_event_id": prior["seed_event_id"],
+                                "investigation_scope": "host",
+                            }
+                            if proposed_scope == "host"
+                            and prior["investigation_scope"] != "host"
+                            else {"parent_run_id": run_id}
+                        ),
+                        "question": argument or prior["question"],
                     },
                 )
             elif action in ("import", "follow", "stop", "test"):

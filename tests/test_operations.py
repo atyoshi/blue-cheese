@@ -148,7 +148,7 @@ def test_v1_migration_is_additive_and_checksums_are_preserved(tmp_path):
         rows = store.db.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert len(rows) == 8
+        assert len(rows) == 9
         assert rows[0] == (1, hashlib.sha256(SQL.encode()).hexdigest())
     finally:
         store.close()
@@ -205,7 +205,7 @@ def test_doctor_no_network_no_initialization_and_conflicting_runtime(tmp_path):
         runtime.close()
     result = doctor(state)
     assert result["ok"]
-    assert result["schema_version"] == 8
+    assert result["schema_version"] == 9
 
 
 def test_source_preflight_rejects_directory_fifo_and_expands_home(

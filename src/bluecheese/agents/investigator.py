@@ -69,6 +69,7 @@ class EvidenceTools:
             "list_alerts",
             "find_events_by_ip",
             "find_related_events",
+            "find_host_context",
             "search_events",
         ):
             raise ValueError("Unknown typed tool")
@@ -422,6 +423,7 @@ def investigate(
     cancel_event=None,
     max_bytes=65536,
     seed_event_id=None,
+    investigation_scope="connection",
     question="What does the observed alert and related flow evidence support?",
     synthetic=True,
     activity_callback=None,
@@ -453,6 +455,7 @@ def investigate(
     ]
     run_status = "COMPLETED"
     tools.requested_seed_id = seed_event_id
+    tools.investigation_scope = investigation_scope
     tools.question = question
     tools.decision_provider = decision_provider
     try:

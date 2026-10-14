@@ -544,3 +544,44 @@ test("failed cases expose readable request diagnostics without creating work", a
   const after = await (await request.get("/api/v1/status")).json();
   expect(after.investigation_runs).toBe(before.investigation_runs);
 });
+
+test("host investigation starts from the actual alert workflow and preserves revision scope", async ({
+  page,
+  request,
+}) => {
+  await seed(request);
+  await page.goto("/");
+  await page
+    .getByRole("button", {
+      name: "ET INFO TeamViewer Dyngate User-Agent",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByText("Host investigation includes traffic", { exact: false }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Investigate source host", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "Host investigation",
+  );
+  await expect(
+    page.getByText("Source host · ±5 minutes", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "New revision" }),
+  ).toBeEnabled();
+  const firstId = (await page.evaluate(() => location.hash)).split("/")[1];
+  const first = await (await request.get("/api/v1/cases/" + firstId)).json();
+  expect(first.investigation_scope).toBe("host");
+  await page.getByRole("button", { name: "New revision" }).click();
+  await expect
+    .poll(() => page.evaluate(() => location.hash))
+    .not.toBe("#cases/" + firstId);
+  const nextId = (await page.evaluate(() => location.hash)).split("/")[1];
+  const next = await (await request.get("/api/v1/cases/" + nextId)).json();
+  expect(next.case_id).toBe(first.case_id);
+  expect(next.investigation_scope).toBe("host");
+  await clean(page);
+});

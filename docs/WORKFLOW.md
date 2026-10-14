@@ -26,3 +26,13 @@ Verify usefulness through analyst completion, elapsed task time, and finding
 quality. Synthetic tests do not establish detection accuracy or commercial
 readiness. Authentication, shared deployment, and additional telemetry sources
 remain separate product work.
+
+## Broader host investigations
+
+Use **Investigate source host** from the alert drawer when the initiating alert
+does not capture the host's surrounding behavior. The new case freezes same-source
+traffic to and from that source host across destinations within five minutes.
+The case labels its host target; revisions preserve scope. Existing connection
+reviews retain their boundaries. Cross-connection context does not establish
+causality, and malicious activity is assessed separately from proven endpoint
+execution or theft. This is part of the normal application workflow.
