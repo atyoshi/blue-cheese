@@ -42,16 +42,24 @@ measured through analyst task completion, time saved and finding quality.
 9. New alert occurrences in a visible group are flagged against its saved snapshot.
    **Analyze new activity** creates a successor; older reports and evidence stay fixed.
 
-Without a model, chat supports local tasks such as `/status`, `/alerts`, `/triage`,
-`/network`, `/history`, `/report` and `/help`. It does not simulate conversational
-model analysis. Settings and analyst decisions remain available through their forms.
+**Practice investigation** provides an isolated synthetic five-checkpoint journey
+in a separate database. See [the guided walkthrough](GUIDED_INVESTIGATION.md),
+including the separate user-initiated llama.cpp check and visual review record.
+
+Without a model, chat supports local tasks plus summaries, definitions,
+selected-view explanations and operational status. GUI and CLI share captured
+view context. `/summary [RUN_ID]` and `/explain TERM` are discoverable terminal
+commands. These reads never create an investigation or change scheduling.
+Explicit new analysis remains a scoped proposal/approved task.
 
 **Network** ranks endpoints by alerts, then record count, and limits visuals to the
 latest 250/1,000/5,000 received accepted records. Endpoint filters affect the visual
 view; they do not change investigation membership. Case visuals use up to 1,000
 frozen records and 12 directed IP pairs. Evidence detail retains original logs.
 
-**Refresh now** reloads the view and shows completion. It does not generate traffic
+**Refresh now** reloads the view and shows completion. Analytical pages preserve
+reading state by refreshing activity/chat independently; their evidence is
+reloaded explicitly. Selected tabs, filters and records remain keyed per case. It does not generate traffic
 or restart the sensor. Automatic investigations remain off after restart; configure
 them under **Settings → Automatic investigation and retry queue**.
 

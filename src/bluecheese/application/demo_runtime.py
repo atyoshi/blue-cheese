@@ -28,11 +28,12 @@ SCENARIOS = {
 
 
 class DemoRuntime:
-    def __init__(self, state_dir, *, load_fixtures=True):
+    def __init__(self, state_dir, *, load_fixtures=True, practice=False):
         self.state_dir = Path(state_dir)
+        self.practice = practice
         self.lock = threading.RLock()
         self.activity = RunActivity(self.lock)
-        self.provider = None if load_fixtures else configured_provider()
+        self.provider = None if load_fixtures or practice else configured_provider()
         self.database = StoreWorker(self.state_dir / "evidence.duckdb")
         self.activity.persist = lambda run_id, event: self.database.call(
             "record_activity", run_id, event
@@ -115,7 +116,7 @@ class DemoRuntime:
                 )
             self.provider = provider
 
-    def begin_chat(self, message, run_id=None):
+    def begin_chat(self, message, run_id=None, view_context=None):
         from bluecheese.application.workspace_chat import respond
 
         with self.lock:
@@ -129,11 +130,19 @@ class DemoRuntime:
                 or len(message) > 4096
             ):
                 raise ValueError("Message must contain 1–4,096 characters")
+            from bluecheese.application.view_context import ViewContext
+
+            if view_context is None:
+                view_context = ViewContext(
+                    run_id=run_id, snapshot=self.command("snapshot")
+                )
+            if view_context.run_id != run_id:
+                raise ValueError("Chat scope does not match the selected investigation")
             self.chat_cancel.clear()
             self.chat_started = datetime.now(UTC)
             self.command("append_chat", "live", "external", run_id, "user", message)
             self.pending_chat = self.chat_executor.submit(
-                respond, self, message, run_id
+                respond, self, message, run_id, view_context
             )
             return self.pending_chat
 
@@ -207,7 +216,8 @@ class DemoRuntime:
                 seed_event_id=seed_event_id,
                 question=question,
                 activity_callback=self.activity.emit,
-                synthetic=scenario in SCENARIOS
+                synthetic=self.practice
+                or scenario in SCENARIOS
                 or (scenario == "live" and variant == "replay"),
                 **{"provider": provider, **settings},
             )
@@ -238,7 +248,8 @@ class DemoRuntime:
                 self.database,
                 run,
                 report,
-                synthetic=scenario in SCENARIOS
+                synthetic=self.practice
+                or scenario in SCENARIOS
                 or (scenario == "live" and variant == "replay"),
             )
             self.activity.emit(

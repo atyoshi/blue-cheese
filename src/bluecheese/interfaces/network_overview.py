@@ -134,7 +134,7 @@ def overview(runtime, snapshot, learning):
     b.metric("Flow records in view", sum(r["event_type"] == "flow" for r in filtered))
     c.metric("Directed IP pairs in view", len(summary["connections"]))
     activity_tab, connection_tab, evidence_tab = st.tabs(
-        ["Connections", "Activity", "Evidence"]
+        ["Connections", "Activity", "Evidence"], key="network-tab", on_change="rerun"
     )
     with connection_tab:
         activity(summary, filtered, learning)

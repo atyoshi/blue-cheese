@@ -19,10 +19,13 @@ from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.ingestion import EveFollower, SourceGap
 from bluecheese.application.source_path import readable_eve_path
 from bluecheese.application.telemetry_visuals import summarize
+from bluecheese.application.view_context import ViewContext, read_answer, reading_intent
 
 SCOPE = ("live", "external")
 CHAT_ACTIONS = (
     "answer",
+    "summarize",
+    "explain",
     "investigate",
     "alerts",
     "triage",
@@ -125,13 +128,15 @@ HELP = """Commands (also accepts: 'triage alerts', 'show network information',
   /network            Summarize up to 1,000 recent network records
   /investigate [QUESTION]  Run Triage → Correlation → Investigator → Falsifier → Reporter
   /report [RUN_ID]     Read a saved cited report (latest by default)
+  /summary [RUN_ID]   Summarize explicit run, last displayed context, or bounded workspace
+  /explain TERM       Explain a term or the last displayed evidence
   /history            List saved runs
   /config [PATH]      Select a JSON provider config; /rules uses offline rules
   /test               Test model tools/schema using synthetic requests
   /status             Show source and investigation state
   /help /quit         Help or exit; Ctrl-C during a run requests cancellation
 With a model configured, ordinary chat lets it select a task. Questions about
-what evidence means use a cited investigation; listing alerts just reads records.
+existing evidence means return explanations; summaries never start analysis.
 Model requests and proposed tasks require approval. No shell tools.
 """
 
@@ -141,6 +146,9 @@ def route(message, model_chat=False):
     if text.startswith("/"):
         name, _, argument = text[1:].partition(" ")
         return name.lower(), argument.strip()
+    intent = reading_intent(text)
+    if intent:
+        return intent
     if model_chat:
         return "chat", text
     lower = text.lower()
@@ -165,6 +173,8 @@ class TerminalSession:
     def __init__(self, runtime, read=input, write=print):
         self.runtime, self.read, self.write = runtime, read, write
         self.chat_history = []
+        self.view_context = None
+        self.last_result = None
 
     def say(self, value):
         self.write(safe_text(value))
@@ -217,6 +227,7 @@ class TerminalSession:
                 result = future.result(timeout=0.2)
                 self.activity(after)
                 self.show(result)
+                self.remember("Investigation", result, run_id=result.get("run_id"))
                 return
             except TimeoutError:
                 if future.done():
@@ -234,11 +245,28 @@ class TerminalSession:
             self.say("Use /help for local tasks or /config to select a chat model.")
             return
         if not self.approve(
-            "Send this chat message to the configured model: " + message
+            "Send this chat message"
+            + (
+                " and the last bounded command result (up to 8 KiB)"
+                if self.last_result is not None
+                else ""
+            )
+            + " to the configured model: "
+            + message
         ):
             return
         self.say("Chat assistant · awaiting model response")
-        plan = self.plan(message)
+        context = (
+            {
+                "last_command_result": self.last_result,
+                "view_context": self.view_context.to_dict()
+                if self.view_context
+                else None,
+            }
+            if self.last_result is not None
+            else None
+        )
+        plan = self.plan(message, context=context)
         self.say(plan["reply"])
         if plan["action"] != "answer":
             # Only typed, allowlisted tasks reach the same approval-gated handlers.
@@ -264,20 +292,21 @@ class TerminalSession:
                 {
                     "role": "system",
                     "content": (
-                        "You are Blue Cheese's terminal task planner. Return JSON with "
-                        "action, argument, reply. Choose one action: "
+                        "You are Blue Cheese's terminal task planner. Return only a JSON object "
+                        "without markdown or text outside the object. Choose one action: "
                         + ", ".join(CHAT_ACTIONS)
                         + ". "
                         "answer: conversation or explanation from supplied context. "
-                        "investigate: explain significance, assess risk or give an opinion about "
-                        "alerts/traffic/evidence, including 'these alerts'; put the user's "
+                        "summarize: concise prose about supplied observations or a saved investigation; never new analysis. "
+                        "explain: definitions or explanations of existing evidence and current view; never new analysis. "
+                        "investigate: only an explicit request for NEW scoped analysis; put the user's "
                         "complete question in argument. This runs bounded evidence tools "
                         "and model analysis and saves a cited report. "
                         "alerts: only when asked to list/show alert records. triage: "
                         "explicit rule prioritization. network: descriptive network statistics "
                         "and summaries of observed connections/endpoints/protocols. Choose "
                         "network for a connection summary without a request to assess risk "
-                        "or suspiciousness; investigation is for evidence interpretation. "
+                        "or suspiciousness. Explain existing findings without launching work. "
                         "report: read a saved report (argument is run ID or blank). "
                         "history: saved runs. status: runtime status. Questions about "
                         "where alerts come from, the connected sensor/source, or whether "
@@ -292,7 +321,15 @@ class TerminalSession:
                         "task ran. reply briefly explains the proposed task, or answers "
                         "general questions. All tasks are validated and separately approved "
                         "by the operator; do not ask them to type slash commands. "
-                        "Do not choose import/follow/stop/test unless explicitly requested."
+                        "Do not choose import/follow/stop/test unless explicitly requested. "
+                        "Use an empty argument string for an answer. "
+                        + (
+                            "Evidence citations must be actual retrieved observation IDs; use an empty citations array for general answers. "
+                            if "citations" in schema["properties"]
+                            else "Do not invent evidence references. "
+                        )
+                        + "The exact required output schema is: "
+                        + json.dumps(schema)
                     ),
                 },
                 *(
@@ -341,6 +378,11 @@ class TerminalSession:
                 or not isinstance(content, str)
             ):
                 raise ValueError("Chat returned incomplete output")
+            # Some compatible servers wrap final JSON in a single Markdown fence.
+            # Accept only that exact formatting wrapper, never surrounding prose.
+            content = content.strip()
+            if content.startswith(("```json\n", "```\n")) and content.endswith("\n```"):
+                content = content.partition("\n")[2].removesuffix("\n```")
             plan = json.loads(content)
             validate(plan, schema)
         except (ValidationError, json.JSONDecodeError):
@@ -358,8 +400,47 @@ class TerminalSession:
         )[-6:]
         return plan
 
+    def remember(self, task, result, *, run_id=None, snapshot=None, evidence_ids=()):
+        """Remember actual bounded output, never a model's proposed execution."""
+        self.last_result = {
+            "task": task,
+            "output": json.dumps(result, default=str)[:8192],
+        }
+        self.view_context = ViewContext(
+            evidence_ids=tuple(evidence_ids[:20]),
+            page="Terminal",
+            task=task,
+            run_id=run_id,
+            snapshot=snapshot,
+            event_type="alert" if task in ("Alerts", "Triage") else "",
+        )
+
+    def reading(self, action, argument):
+        from dataclasses import replace
+
+        view = self.view_context or ViewContext(page="Terminal")
+        if action == "summary" and argument:
+            view = replace(
+                view,
+                run_id=argument,
+                task="Investigation",
+                event_type="",
+                evidence_ids=(),
+                evidence_id="",
+                connection=None,
+                endpoint="",
+            )
+        answer = read_answer(
+            self.runtime, "summarize" if action == "summary" else action, argument, view
+        )
+        self.say("Scope: " + answer["scope"])
+        self.say(answer["reply"])
+        self.last_result = {"task": action, "output": answer["reply"][:8192]}
+
     def execute(self, action, argument):
-        if action == "help":
+        if action in ("summary", "summarize", "explain"):
+            self.reading(action, argument)
+        elif action == "help":
             self.say(HELP)
         elif action == "config":
             path = argument or self.read("Config JSON path > ").strip()
@@ -372,7 +453,15 @@ class TerminalSession:
             self.chat_history.clear()
             self.say("Offline rules selected.")
         elif action == "status":
-            self.show(self.runtime.status())
+            if argument:
+                self.reading("status", argument)
+            else:
+                result = self.runtime.status()
+                self.show(result)
+                self.last_result = {
+                    "task": "Status",
+                    "output": json.dumps(result, default=str)[:8192],
+                }
         elif action == "investigate":
             self.investigate(
                 argument or "What does the observed network evidence support?"
@@ -408,6 +497,7 @@ class TerminalSession:
             self.runtime.stop()
             self.say("Source stopped.")
         elif action in ("alerts", "triage", "network", "history", "report", "test"):
+            evidence_ids = []
             if not self.approve(
                 {
                     "alerts": "Read up to 20 scoped alerts",
@@ -423,17 +513,18 @@ class TerminalSession:
             snapshot = self.runtime.command("snapshot")
             if action in ("alerts", "triage"):
                 rows = self.runtime.command("list_alerts", *SCOPE, snapshot, limit=20)
+                evidence_ids = [row["id"] for row in rows]
                 result = (
                     TriageAgent().triage_events(rows)
                     if action == "triage"
                     else [{"id": r["id"], "normalized": r["normalized"]} for r in rows]
                 )
             elif action == "network":
-                result = summarize(
-                    self.runtime.command(
-                        "visual_telemetry", *SCOPE, snapshot, limit=1000
-                    )
+                rows = self.runtime.command(
+                    "visual_telemetry", *SCOPE, snapshot, limit=1000
                 )
+                evidence_ids = [row["id"] for row in rows]
+                result = summarize(rows)
             elif action == "test":
                 result = self.runtime.test_provider()
             else:
@@ -447,6 +538,13 @@ class TerminalSession:
                         else None
                     )
             self.show(result)
+            self.remember(
+                action.title(),
+                result,
+                run_id=(result or {}).get("run_id") if action == "report" else None,
+                snapshot=snapshot,
+                evidence_ids=evidence_ids,
+            )
         else:
             self.say("Unknown command. Use /help.")
 

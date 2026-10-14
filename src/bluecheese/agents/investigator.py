@@ -49,11 +49,13 @@ class EvidenceTools:
         self.retrieved = {}
         self.activity_callback = activity_callback
 
-    def emit(self, role, status, message, *, kind="software", handoff_to=None):
+    def emit(
+        self, role, status, message, *, kind="software", handoff_to=None, **details
+    ):
         self.role = role
         if self.activity_callback:
             self.activity_callback(
-                role, status, message, kind=kind, handoff_to=handoff_to
+                role, status, message, kind=kind, handoff_to=handoff_to, **details
             )
 
     def check_cancelled(self):
@@ -69,12 +71,16 @@ class EvidenceTools:
             "search_events",
         ):
             raise ValueError("Unknown typed tool")
+        query_started = self.clock()
         if (
             len(self.activity) >= self.max_calls
-            or self.clock() - self.started >= self.max_seconds
+            or query_started - self.started >= self.max_seconds
         ):
             raise BudgetExceeded("Tool-call or elapsed-time limit reached")
         activity = {
+            "operation_id": f"query-{len(self.activity) + 1}",
+            "started_at": query_started - self.started,
+            "implementation": tool,
             "role": getattr(self, "role", "Orchestrator"),
             "tool": tool,
             "arguments": args,
@@ -89,6 +95,10 @@ class EvidenceTools:
             "working",
             f"Query {tool}: {json.dumps(args, ensure_ascii=True)[:512]}",
             kind="tool",
+            operation_id=activity["operation_id"],
+            implementation=tool,
+            arguments=args,
+            outcome="STARTED",
         )
         try:
             result = getattr(self.store, tool)(*self.scope, **args)
@@ -110,6 +120,10 @@ class EvidenceTools:
             self.bytes_returned += activity["bytes"]
             self.retrieved.update({r["id"]: r for r in delivered})
         finally:
+            query_finished = self.clock()
+            activity["finished_at"] = query_finished - self.started
+            activity["duration_seconds"] = round(query_finished - query_started, 3)
+            activity["outcome"] = activity["status"]
             self.activity.append(activity)
             self.emit(
                 activity["role"],
@@ -122,11 +136,26 @@ class EvidenceTools:
                 )
                 + f". Query: {json.dumps(args, ensure_ascii=True)[:512]}",
                 kind="tool",
+                **{
+                    key: activity[key]
+                    for key in (
+                        "operation_id",
+                        "implementation",
+                        "arguments",
+                        "returned_count",
+                        "returned_ids",
+                        "truncated",
+                        "outcome",
+                        "duration_seconds",
+                        "started_at",
+                        "finished_at",
+                    )
+                },
             )
             if hasattr(self.store, "audit_tool"):
                 self.store.audit_tool(activity)
         self.check_cancelled()
-        if self.clock() - self.started >= self.max_seconds:
+        if query_finished - self.started >= self.max_seconds:
             raise BudgetExceeded("Elapsed-time limit reached during query")
         return (
             (delivered[0] if delivered else None) if tool == "get_event" else delivered

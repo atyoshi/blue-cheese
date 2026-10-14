@@ -4,6 +4,7 @@ import json
 
 from bluecheese.agents.investigator import EvidenceTools
 from bluecheese.application.store_worker import WorkerStore
+from bluecheese.application.view_context import ViewContext, read_answer, retrieve_view
 
 SCOPE = ("live", "external")
 
@@ -27,7 +28,7 @@ def status_reply(status):
     )
 
 
-def respond(runtime, message, run_id):
+def respond(runtime, message, run_id, view_context=None):
     # Import here to keep the operational runtime independent of terminal UI startup.
     from bluecheese.interfaces.terminal import CHAT_SCHEMA, TerminalSession, route
 
@@ -39,51 +40,48 @@ def respond(runtime, message, run_id):
         "run_id": run_id,
     }
     try:
+        view_context = view_context or ViewContext(
+            run_id=run_id, snapshot=runtime.command("snapshot")
+        )
         status = runtime.status()
         saved = runtime.command("get_run", *SCOPE, run_id) if run_id else None
         if run_id and saved is None:
             raise ValueError("Selected investigation no longer exists")
         provider = runtime.provider
         action, argument = route(message, model_chat=provider is not None)
-        if not provider and not message.startswith("/"):
-            lower = message.lower().strip()
-            if any(
-                word in lower
-                for word in (
-                    "what is running",
-                    "what is happening",
-                    "what are you doing",
-                    "being investigated",
-                    "activity",
+        if action in ("summarize", "summary", "explain", "status"):
+            if action in ("summarize", "summary") and message.startswith("/summary "):
+                from dataclasses import replace
+
+                view_context = replace(
+                    view_context,
+                    run_id=argument,
+                    evidence_id="",
+                    evidence_ids=(),
+                    connection=None,
+                    endpoint="",
+                    event_type="",
+                    signature="",
+                    severity=None,
+                    snapshot_id=None,
+                    task="Investigation",
                 )
-            ):
-                action = "status"
-        if action == "chat" and provider:
-            snapshot = saved["snapshot"] if saved else runtime.command("snapshot")
-            tools = EvidenceTools(
-                WorkerStore(
-                    runtime.database, saved["snapshot_id"] if saved else None, snapshot
-                ),
-                *SCOPE,
-                snapshot,
-                max_calls=6,
-                max_seconds=30,
-                cancel_event=runtime.chat_cancel,
+            result = read_answer(
+                runtime,
+                "summarize" if action == "summary" else action,
+                argument or message,
+                view_context,
             )
+            runtime.command(
+                "append_chat", *SCOPE, run_id, "assistant", json.dumps(result)
+            )
+            return result
+        if action == "chat" and provider:
+            tools, selected_rows, snapshot = retrieve_view(runtime, view_context, saved)
             report = saved.get("report") if saved else None
-            if report:
-                ids = list(
-                    dict.fromkeys(
-                        report["supporting_ids"] + report["contradicting_ids"]
-                    )
-                )[:4]
-                for event_id in ids:
-                    tools.call("get_event", event_id=event_id)
-            else:
-                tools.call("list_alerts", limit=10)
             observations = [
                 {"id": item["id"], "normalized": item["normalized"]}
-                for item in tools.retrieved.values()
+                for item in selected_rows
             ]
             # Host paths and raw logs are unnecessary for model planning.
             health = {
@@ -102,6 +100,7 @@ def respond(runtime, message, run_id):
                 )
             }
             context = {
+                "view_context": view_context.to_dict(),
                 "health": health,
                 "engine": provider.label,
                 "role_implementations": {
@@ -181,7 +180,23 @@ def respond(runtime, message, run_id):
                 raise ValueError(
                     "Chat cited evidence it did not retrieve; answer rejected"
                 )
+            if plan["action"] in ("summarize", "explain"):
+                # The model's prose and citations already passed validation.
+                # Reading intents are answers, never proposals to execute work.
+                plan["action"] = "answer"
             result.update(plan)
+            result["scope"] = (
+                f"{view_context.page} · {view_context.task or 'workspace'} · snapshot {snapshot}"
+            )
+            if view_context.connection:
+                result["scope"] += " · " + " → ".join(view_context.connection)
+            if view_context.endpoint:
+                result["scope"] += " · endpoint " + view_context.endpoint
+            if view_context.evidence_id:
+                result["scope"] += " · evidence " + view_context.evidence_id
+            if run_id:
+                result["scope"] += " · run " + run_id
+            result["view_context"] = view_context.to_dict()
             result["retrieval"] = tools.activity
             result["snapshot"] = snapshot
             action, argument = plan["action"], plan["argument"]
@@ -317,6 +332,8 @@ def respond(runtime, message, run_id):
             "citations": [],
             "run_id": run_id,
             "error": True,
+            "scope": f"{view_context.page} · {view_context.task or 'workspace'} · run {view_context.run_id or 'none'}",
+            "view_context": view_context.to_dict(),
         }
     runtime.command("append_chat", *SCOPE, run_id, "assistant", json.dumps(result))
     return result

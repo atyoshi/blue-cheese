@@ -74,7 +74,7 @@ def summarize(rows):
     }
 
 
-def connection_graph(connections):
+def connection_graph(connections, selected=None):
     """Graphviz with quoted labels and generated IDs; telemetry cannot inject DOT."""
     lines = [
         "digraph traffic {",
@@ -100,6 +100,8 @@ def connection_graph(connections):
         label = f"{pair['alerts']} {alert_word} · {pair['flows']} {flow_word}"
         color = "#d15b38" if pair["alerts"] else "#367eb3"
         width = 1 + min(4, math.log2(pair["records"] + 1))
+        if selected and (pair["source"], pair["destination"]) == tuple(selected):
+            color, width = "#e59b30", 5
         lines.append(
             f'{sources[pair["source"]]} -> {destinations[pair["destination"]]} [label={json.dumps(label, ensure_ascii=False)}, color="{color}", fontcolor="{color}", penwidth={width:.1f}];'
         )

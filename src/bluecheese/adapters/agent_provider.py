@@ -5,7 +5,12 @@ import json
 from jsonschema import ValidationError, validate
 
 from bluecheese.adapters.model_provider import REPORT_SCHEMA, request_completion
-from bluecheese.agents.investigator import BudgetExceeded, Falsifier, validate_report
+from bluecheese.agents.investigator import (
+    BudgetExceeded,
+    Falsifier,
+    RunCancelled,
+    validate_report,
+)
 
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 100}
 TOOL_PARAMETERS = {
@@ -131,7 +136,10 @@ class AgentModelProvider:
                 if force_tool
                 else "auto"
             )
+        request_started = tools.clock()
         attempt = {
+            "operation_id": f"model-{activity['attempts'] + 1}",
+            "started_at": request_started - tools.started,
             "role": role,
             "model": payload["model"],
             "input_bytes": size,
@@ -145,6 +153,9 @@ class AgentModelProvider:
             "working",
             f"Awaiting model response (call {activity['attempts']}/{self.max_attempts}; model {payload['model']}; {size:,} input bytes).",
             kind="model",
+            operation_id=attempt["operation_id"],
+            implementation=payload["model"],
+            outcome="STARTED",
         )
         try:
             try:
@@ -179,14 +190,41 @@ class AgentModelProvider:
                 "working",
                 "Model response received; checking the requested action or report.",
                 kind="model",
+                operation_id=attempt["operation_id"],
+                implementation=payload["model"],
+                outcome="OK",
+                duration_seconds=round(tools.clock() - request_started, 3),
             )
             return message
         except (KeyError, IndexError, TypeError):
             attempt["status"] = "ERROR"
             raise ValueError("Invalid provider response envelope") from None
-        except Exception:
+        except Exception as error:
             attempt["status"] = "ERROR"
+            attempt["outcome"] = (
+                "CANCELLED"
+                if isinstance(error, RunCancelled)
+                else "BUDGET_EXHAUSTED"
+                if isinstance(error, BudgetExceeded)
+                else "TIMEOUT"
+                if isinstance(error, TimeoutError) or "timed out" in str(error).lower()
+                else "ERROR"
+            )
             raise
+        finally:
+            attempt["finished_at"] = tools.clock() - tools.started
+            attempt["duration_seconds"] = round(tools.clock() - request_started, 3)
+            if attempt["status"] != "OK":
+                tools.emit(
+                    role,
+                    "failed",
+                    "Model request did not complete; inspect run status before retrying.",
+                    kind="model",
+                    operation_id=attempt["operation_id"],
+                    implementation=payload["model"],
+                    outcome=attempt.get("outcome", attempt["status"]),
+                    duration_seconds=attempt["duration_seconds"],
+                )
 
     def _tool_result(self, tools, call):
         try:

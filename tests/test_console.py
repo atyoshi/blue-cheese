@@ -416,3 +416,37 @@ def test_console_stream_receiver_uses_same_evidence_and_stops_on_disconnect(
         finally:
             producer.close()
             runtime.close()
+
+
+def test_integer_json_timeout_renders_cooperative_budget(tmp_path, monkeypatch):
+    from bluecheese.interfaces.terminal import load_provider
+
+    runtime = DemoRuntime(tmp_path / "state", load_fixtures=False)
+    try:
+        runtime.command("import_file", FIXTURE, "live", "external")
+        runtime.run("live", "external", max_calls=8)
+        config = tmp_path / "provider.json"
+        config.write_text(
+            '{"endpoint":"http://localhost:8080/v1", "model":"mock", "timeout":300}'
+        )
+        provider = load_provider(config)
+        provider.transport = lambda *args: pytest.fail("Navigation called model")
+        runtime.configure_provider(provider)
+        monkeypatch.setenv("BLUECHEESE_STATE", str(runtime.state_dir))
+        monkeypatch.setattr(
+            "bluecheese.application.demo_runtime.DemoRuntime",
+            lambda *args, **kwargs: runtime,
+        )
+        app = AppTest.from_file(str(APP), default_timeout=20).run()
+        app.sidebar.radio[0].set_value("Investigations").run()
+        assert not app.exception
+        seconds = next(
+            item
+            for item in app.number_input
+            if item.label == "Seconds (cooperative limit)"
+        )
+        assert seconds.value == 1800.0
+        assert isinstance(seconds.value, float)
+        assert runtime.investigation_runs == 1
+    finally:
+        runtime.close()

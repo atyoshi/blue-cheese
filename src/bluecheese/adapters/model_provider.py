@@ -102,7 +102,9 @@ def investigation_seconds(provider):
     """Cooperative run allowance sufficient for the configured bounded call loop."""
     if provider is None:
         return 5.0
-    return max(60.0, provider.profile.timeout * getattr(provider, "max_attempts", 1))
+    return float(
+        max(60.0, provider.profile.timeout * getattr(provider, "max_attempts", 1))
+    )
 
 
 def request_completion(profile, payload, timeout):

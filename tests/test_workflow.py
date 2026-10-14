@@ -146,18 +146,26 @@ def test_chat_grounding_rejects_fabrication_and_never_executes_proposals(tmp_pat
         assert reply["retrieval"]
         assert runtime.status()["investigation_runs"] == 1
         mode["unknown"] = True
-        rejected = runtime.begin_chat("Explain the evidence", report["run_id"]).result(
-            10
-        )
+        rejected = runtime.begin_chat(
+            "Why is this suspicious?", report["run_id"]
+        ).result(10)
         assert rejected["error"]
         assert "did not retrieve" in rejected["reply"]
+        mode.update(unknown=False, action="explain")
+        explained = runtime.begin_chat(
+            "Why is this suspicious?", report["run_id"]
+        ).result(10)
+        assert explained["action"] == "answer"
+        assert explained["reply"] == "The sensor recorded this alert."
+        assert explained["citations"]
+        assert runtime.investigation_runs == 1
         mode.update(unknown=False, action="investigate")
         proposed = runtime.begin_chat("Investigate further", report["run_id"]).result(
             10
         )
         assert proposed["action"] == "investigate"
         assert runtime.status()["investigation_runs"] == 1
-        assert len(calls) == 3
+        assert len(calls) == 4
     finally:
         runtime.close()
 
@@ -194,7 +202,7 @@ def test_chat_wait_duplicate_request_and_cancellation(tmp_path):
                 transport,
             )
         )
-        future = runtime.begin_chat("Explain the workspace")
+        future = runtime.begin_chat("Could you discuss the workspace?")
         assert entered.wait(5)
         with pytest.raises(RuntimeError, match="already running"):
             runtime.begin_chat("Duplicate request")

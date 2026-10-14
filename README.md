@@ -54,7 +54,9 @@ stop the app with **Ctrl+C**. Closing the browser tab does not stop the app.
 same arguments and launch the same application.
 
 The console initially has no telemetry. It does not load demonstration scenarios
-or start Suricata automatically. Install/configure Suricata separately if you
+or start Suricata automatically. **Practice investigation** offers a separate
+synthetic workspace with five checkpoints; see [the guided walkthrough](docs/GUIDED_INVESTIGATION.md).
+Install/configure Suricata separately if you
 want live sensor output; an existing EVE file needs no running sensor.
 
 | Task | Command |
@@ -83,6 +85,13 @@ You can then use `bluecheese` from other directories; state paths still follow t
 working directory. The link depends on this checkout remaining in place.
 
 ## Interactive agent terminal
+
+`/summary [RUN_ID]` returns a concise summary of an explicit run, the last actual
+displayed/investigated context, or a labelled bounded workspace overview.
+`/explain TERM` explains a term or the selected evidence. Natural summaries and
+explanations use the same read-only handling in the GUI and CLI, including without
+a model. They never launch an investigation. Existing slash inspection commands
+retain structured output and approvals. See [the practice and conversation walkthrough](docs/GUIDED_INVESTIGATION.md).
 
 After installation, start the terminal with one command:
 

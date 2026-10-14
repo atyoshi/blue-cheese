@@ -22,11 +22,17 @@ from bluecheese.interfaces.console_workflow import (
     attention,
     chat_panel,
     investigation_workspace,
+    practice_workspace,
 )
 from bluecheese.interfaces.demo import inspect_event
 from bluecheese.interfaces.network_overview import explain_record, overview
 
 SCOPE = ("live", "external")
+
+
+@st.cache_resource
+def get_practice_runtime(state_dir):
+    return DemoRuntime(state_dir, load_fixtures=False, practice=True)
 
 
 @st.cache_resource
@@ -260,7 +266,7 @@ def telemetry_table(runtime, snapshot, event_type, learning=False):
         else ""
     )
     severity = (
-        right.selectbox("Sensor severity", ["All", 1, 2, 3])
+        right.selectbox("Sensor severity", ["All", 1, 2, 3], key="alert-severity")
         if event_type == "alert"
         else "All"
     )
@@ -456,7 +462,14 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
     previous = st.session_state.get("last-view-accepted")
     st.session_state["last-view-accepted"] = counts["accepted"]
     delta = counts["accepted"] - previous if previous is not None else None
-    refresh_state = "Auto refresh on" if auto_refresh else "Auto refresh off"
+    refresh_state = (
+        "Activity updates only; Refresh now reloads evidence"
+        if page
+        in ("Investigations", "Practice investigation", "Overview", "Alerts", "Flows")
+        else "Auto refresh on"
+        if auto_refresh
+        else "Auto refresh off"
+    )
     st.caption(
         f"View refreshed {now} · {refresh_state}"
         + (
@@ -475,7 +488,10 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
         st.warning(
             f"{len(incidents)} recorded source continuity incident(s). Coverage may be incomplete; inspect Sensor health."
         )
-    if page == "Needs attention":
+    st.session_state["current-view-page"] = page
+    if page == "Practice investigation":
+        practice_workspace(runtime)
+    elif page == "Needs attention":
         review, chat = st.columns([3, 2])
         with review:
             attention(runtime, snapshot)
@@ -483,10 +499,13 @@ def workspace(runtime, page, learning=True, auto_refresh=True):
             st.fragment(run_every=1.0)(chat_panel)(runtime)
     elif page == "Overview":
         overview(runtime, snapshot, learning)
+        st.fragment(run_every=1.0)(chat_panel)(runtime)
     elif page == "Alerts":
         telemetry_table(runtime, snapshot, "alert", learning)
+        st.fragment(run_every=1.0)(chat_panel)(runtime)
     elif page == "Flows":
         telemetry_table(runtime, snapshot, "flow", learning)
+        st.fragment(run_every=1.0)(chat_panel)(runtime)
     elif page == "Investigations":
         investigations(runtime, counts)
     elif page == "Settings":
@@ -564,6 +583,7 @@ def main():
             "Workspace",
             [
                 "Needs attention",
+                "Practice investigation",
                 "Investigations",
                 "Overview",
                 "Alerts",
@@ -574,6 +594,11 @@ def main():
             format_func=lambda value: "Network" if value == "Overview" else value,
             key="workspace-page",
         )
+        if page == "Practice investigation":
+            runtime = get_practice_runtime(str(runtime.state_dir / "practice"))
+        if page == "Practice investigation":
+            with st.sidebar.expander("Practice engine (optional model)"):
+                provider_controls(runtime)
         learning = st.sidebar.toggle(
             "Learning mode",
             value=False,
@@ -593,9 +618,14 @@ def main():
             "Sensor connection",
             expanded=not current["counts"]["accepted"] and not current["running"],
         ):
-            st.fragment(run_every=2.0 if auto_refresh else None)(source_controls)(
-                runtime
-            )
+            if page != "Practice investigation":
+                st.fragment(run_every=2.0 if auto_refresh else None)(source_controls)(
+                    runtime
+                )
+            else:
+                st.caption(
+                    "Practice uses synthetic saved input in a separate database. No sensor is connected."
+                )
         st.sidebar.divider()
         st.sidebar.caption(
             "Local analyst console · "
@@ -607,7 +637,10 @@ def main():
         )
         st.title("Network" if page == "Overview" else page)
         current_run = runtime.activity.snapshot()["run_id"]
-        if current["investigation_pending"] and page != "Investigations":
+        if current["investigation_pending"] and page not in (
+            "Investigations",
+            "Practice investigation",
+        ):
             st.info(
                 "An investigation is running. Open Investigations to follow its actual operations."
             )
@@ -615,9 +648,19 @@ def main():
                 st.session_state["open-case-run"] = current_run
                 st.session_state["navigate-case"] = True
                 st.rerun(scope="app")
-        st.fragment(run_every=2.0 if auto_refresh else None)(workspace)(
-            runtime, page, learning, auto_refresh
-        )
+        st.fragment(
+            run_every=2.0
+            if auto_refresh
+            and page
+            not in (
+                "Investigations",
+                "Practice investigation",
+                "Overview",
+                "Alerts",
+                "Flows",
+            )
+            else None
+        )(workspace)(runtime, page, learning, auto_refresh)
     except (OSError, RuntimeError, ValueError) as error:
         st.error(str(error))
 

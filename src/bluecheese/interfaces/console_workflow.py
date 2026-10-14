@@ -2,11 +2,13 @@
 
 import json
 from datetime import UTC, datetime
+from importlib.resources import files
 
 import streamlit as st
 
 from bluecheese.adapters.model_provider import investigation_seconds
 from bluecheese.application.telemetry_visuals import connection_graph, summarize
+from bluecheese.application.view_context import ViewContext
 from bluecheese.interfaces.console_design import record_label, start_investigation
 from bluecheese.interfaces.console_report import show_report
 from bluecheese.interfaces.demo import inspect_event
@@ -181,6 +183,40 @@ def render_activity(runtime, run_id):
                 st.text(
                     f"Saved {len(report.get('claims', []))} claims with {len(set(report['supporting_ids'] + report['contradicting_ids']))} evidence references."
                 )
+    with st.expander("Chronological technical trace"):
+        role_filter = st.multiselect(
+            "Trace roles",
+            sorted({e["role"] for e in events}),
+            key="trace-role-" + run_id,
+        )
+        type_filter = st.multiselect(
+            "Trace types",
+            sorted({e["kind"] for e in events}),
+            key="trace-type-" + run_id,
+        )
+        for event in events:
+            if role_filter and event["role"] not in role_filter:
+                continue
+            if type_filter and event["kind"] not in type_filter:
+                continue
+            st.text(
+                f"{event['elapsed_seconds']:.1f}s · {event['role']} · {event['kind']} · {event['message']}"
+            )
+            st.json(
+                {
+                    key: event.get(key, "unavailable")
+                    for key in (
+                        "operation_id",
+                        "implementation",
+                        "arguments",
+                        "duration_seconds",
+                        "returned_count",
+                        "truncated",
+                        "outcome",
+                    )
+                },
+                expanded=False,
+            )
     calls = saved.get("tool_activity", [])
     with st.expander(f"Actual evidence queries ({len(calls)})"):
         for index, call in enumerate(calls):
@@ -220,6 +256,10 @@ def render_activity(runtime, run_id):
 
 def _execute_proposal(runtime, result, saved):
     action, argument = result["action"], result.get("argument", "")
+    if runtime.practice and action in ("import", "follow", "stop"):
+        raise ValueError(
+            "Practice accepts synthetic fixture input. Open the operational workspace to manage sources."
+        )
     if action == "investigate" and saved:
         runtime.begin_run(
             *SCOPE,
@@ -242,7 +282,10 @@ def _execute_proposal(runtime, result, saved):
                 }
             ),
         )
-        st.session_state["show-submitted-investigation"] = True
+        if runtime.practice:
+            st.session_state["follow-next-run"] = True
+        else:
+            st.session_state["show-submitted-investigation"] = True
         st.rerun(scope="app")
     # Reuse the CLI's validated handlers for explicit source/test proposals.
     from bluecheese.interfaces.terminal import TerminalSession
@@ -276,7 +319,7 @@ def chat_panel(runtime, run_id=None):
     )
     if not runtime.provider:
         st.caption(
-            "Local commands are available. Configure a model in Settings for conversational explanations."
+            "Local commands are available. Definitions, summaries and current-state explanations also work offline."
         )
     history = runtime.command("chat_history", *SCOPE, run_id)
     for index, item in enumerate(history):
@@ -288,6 +331,8 @@ def chat_panel(runtime, run_id=None):
                 result = json.loads(item["content"])
             except (ValueError, TypeError):
                 result = {"reply": item["content"]}
+            if result.get("scope"):
+                st.caption("Response scope: " + result["scope"])
             st.text(result.get("reply", ""))
             for citation in result.get("citations", []):
                 if saved or result.get("snapshot") is not None:
@@ -298,9 +343,16 @@ def chat_panel(runtime, run_id=None):
                         inspect_event(
                             runtime,
                             *SCOPE,
-                            saved["snapshot"] if saved else result["snapshot"],
+                            result.get(
+                                "snapshot", saved["snapshot"] if saved else None
+                            ),
                             citation,
-                            saved["snapshot_id"] if saved else None,
+                            (result.get("view_context") or {}).get("snapshot_id")
+                            or (
+                                saved["snapshot_id"]
+                                if saved and result.get("run_id") == run_id
+                                else None
+                            ),
                         )
             if result.get("retrieval"):
                 with st.expander("Evidence used for this answer"):
@@ -338,18 +390,45 @@ def chat_panel(runtime, run_id=None):
         if st.button("Cancel chat request", key="cancel-chat-" + str(run_id)):
             runtime.cancel_chat()
             st.info("Cancellation requested. Waiting for the active request to return.")
-    prompt = st.chat_input(
+    error_key = "chat-submit-error-" + str(run_id)
+    chat_key = "case-chat-" + str(run_id)
+
+    def submit(message=None):
+        # Widget callbacks run once per submission, before rendering the fragment.
+        # An app rerun after reading chat_input can replay its trigger value.
+        message = message or st.session_state.get(chat_key)
+        if not message:
+            return
+        try:
+            current = runtime.command("get_run", *SCOPE, run_id) if run_id else None
+            runtime.begin_chat(message, run_id, captured_view(runtime, current))
+        except (ValueError, RuntimeError) as error:
+            st.session_state[error_key] = str(error)
+
+    for label in (
+        "Explain this view",
+        "What is happening now?",
+        "Show the evidence",
+        "What should I check next?",
+    ):
+        st.button(
+            label,
+            key=f"ask-{run_id}-{label}",
+            disabled=busy,
+            width="stretch",
+            on_click=submit,
+            args=(label,),
+        )
+    st.chat_input(
         "Ask what happened, what is running, or what to check next…",
-        key="case-chat-" + str(run_id),
+        key=chat_key,
         disabled=busy,
         max_chars=4096,
+        on_submit=submit,
     )
-    if prompt:
-        try:
-            runtime.begin_chat(prompt, run_id)
-            st.rerun(scope="fragment")
-        except (ValueError, RuntimeError) as error:
-            st.error(str(error))
+    error = st.session_state.pop(error_key, None)
+    if error:
+        st.error(error)
 
 
 def investigation_workspace(runtime, counts):
@@ -375,20 +454,18 @@ def investigation_workspace(runtime, counts):
         advanced_controls(runtime, counts)
         return
     by_id = {row["run_id"]: row for row in history}
+    if st.session_state.get("saved-investigation") not in by_id:
+        st.session_state["saved-investigation"] = next(iter(by_id))
     selected = st.selectbox(
         "Saved investigation",
         list(by_id),
         key="saved-investigation",
         format_func=lambda value: (
-            f"{by_id[value].get('title') or by_id[value].get('question')} · {by_id[value]['created_at'][:19].replace('T', ' ')} · {by_id[value]['status'].lower()}"
+            f"{by_id[value].get('title') or by_id[value].get('question')} · {by_id[value]['created_at'][:19].replace('T', ' ')}"
         ),
     )
     saved = runtime.command("get_run", *SCOPE, selected)
     st.text(saved.get("title") or saved.get("question") or "Evidence investigation")
-    a, b, c = st.columns(3)
-    a.metric("Analysis", saved["status"].replace("_", " ").title())
-    b.metric("Decision", saved.get("disposition", "OPEN").replace("_", " ").title())
-    c.metric("Assigned to", saved.get("owner") or "Unassigned")
     st.caption(
         f"{saved.get('record_count', 0):,} frozen records · {saved.get('pair_count', 0)} directed IP pairs · Question: {saved.get('question', '')}"
     )
@@ -396,8 +473,15 @@ def investigation_workspace(runtime, counts):
         st.caption(
             "Scope: selected alert + same-source directed endpoint pair within ±5 minutes. New arrivals do not change this snapshot."
         )
+    st.fragment(run_every=1.0)(activity_header)(runtime, selected)
     evidence_column, chat_column = st.columns([3, 2])
     with evidence_column:
+        if "case-tab-" + selected not in st.session_state:
+            st.session_state["case-tab-" + selected] = (
+                "Agent activity"
+                if saved["status"] in ("RUNNING", "QUEUED")
+                else "Findings"
+            )
         tabs = st.tabs(
             [
                 "Findings",
@@ -405,9 +489,9 @@ def investigation_workspace(runtime, counts):
                 "Agent activity",
                 "Analyst decision",
             ],
-            default="Agent activity"
-            if saved["status"] in ("RUNNING", "QUEUED")
-            else "Findings",
+            default="Findings",
+            key="case-tab-" + selected,
+            on_change="rerun",
         )
         with tabs[0]:
             if saved.get("report"):
@@ -444,9 +528,40 @@ def investigation_workspace(runtime, counts):
                 f"Showing the newest {len(rows):,} of {saved.get('record_count', 0):,} frozen records; graph shows up to 12 IP pairs."
             )
             if summary["connections"]:
-                st.graphviz_chart(
-                    connection_graph(summary["connections"]), width="stretch"
+                pairs = [
+                    (pair["source"], pair["destination"])
+                    for pair in summary["connections"]
+                ]
+                connection = st.selectbox(
+                    "Selected connection",
+                    [None, *pairs],
+                    key="connection-" + selected,
+                    format_func=lambda pair: (
+                        "All connections" if pair is None else " → ".join(pair)
+                    ),
                 )
+                st.graphviz_chart(
+                    connection_graph(summary["connections"], connection),
+                    width="stretch",
+                )
+                if connection:
+                    rows = [
+                        row
+                        for row in rows
+                        if (row.get("src_ip"), row.get("dest_ip")) == connection
+                    ]
+                endpoint = st.text_input("Endpoint filter", key="endpoint-" + selected)
+                if endpoint:
+                    rows = [
+                        row
+                        for row in rows
+                        if endpoint in (row.get("src_ip"), row.get("dest_ip"))
+                    ]
+                kind = st.selectbox(
+                    "Record type", ["All", "alert", "flow"], key="kind-" + selected
+                )
+                if kind != "All":
+                    rows = [row for row in rows if row["event_type"] == kind]
             if summary["timeline"]:
                 st.vega_lite_chart(
                     {
@@ -457,6 +572,7 @@ def investigation_workspace(runtime, counts):
                                 "field": "time",
                                 "type": "temporal",
                                 "title": "Event time (UTC)",
+                                "scale": {"type": "utc"},
                             },
                             "y": {"field": "records", "type": "quantitative"},
                             "color": {"field": "type"},
@@ -466,16 +582,31 @@ def investigation_workspace(runtime, counts):
                     height=180,
                 )
             if rows:
+                if st.session_state.get("evidence-" + selected) not in {
+                    row["id"] for row in rows
+                }:
+                    st.session_state["evidence-" + selected] = None
                 chosen = st.selectbox(
                     "Inspect case evidence",
-                    [row["id"] for row in rows],
-                    format_func=lambda value: record_label(
-                        next(row for row in rows if row["id"] == value)
+                    [None, *[row["id"] for row in rows]],
+                    key="evidence-" + selected,
+                    format_func=lambda value: (
+                        "Select a record"
+                        if value is None
+                        else record_label(
+                            next(row for row in rows if row["id"] == value)
+                        )
                     ),
                 )
-                inspect_event(
-                    runtime, *SCOPE, saved["snapshot"], chosen, saved["snapshot_id"]
-                )
+                if chosen:
+                    with st.expander("Evidence drawer", expanded=True):
+                        inspect_event(
+                            runtime,
+                            *SCOPE,
+                            saved["snapshot"],
+                            chosen,
+                            saved["snapshot_id"],
+                        )
         with tabs[2]:
             st.fragment(run_every=1.0)(render_activity)(runtime, selected)
         with tabs[3]:
@@ -580,3 +711,204 @@ def advanced_controls(runtime, counts):
                 )
             except (ValueError, RuntimeError) as error:
                 st.error(str(error))
+
+
+def captured_view(runtime, saved=None):
+    """Capture widget values at submission; later navigation cannot retarget an answer."""
+    run_id = saved["run_id"] if saved else None
+    page = st.session_state.get("current-view-page", "Workspace")
+    task = st.session_state.get("case-tab-" + run_id, "Findings") if run_id else page
+    view = ViewContext(
+        page=page,
+        task=task,
+        run_id=run_id,
+        snapshot=saved["snapshot"] if saved else runtime.command("snapshot"),
+        snapshot_id=saved["snapshot_id"] if saved else None,
+        display_limit=1000
+        if saved
+        else st.session_state.get("visual-limit", 1000)
+        if page == "Overview"
+        else 20,
+    )
+    from dataclasses import replace
+
+    if run_id and task == "Evidence and connections":
+        return replace(
+            view,
+            connection=st.session_state.get("connection-" + run_id),
+            endpoint=st.session_state.get("endpoint-" + run_id, ""),
+            evidence_id=st.session_state.get("evidence-" + run_id) or "",
+            event_type=st.session_state.get("kind-" + run_id, "").replace("All", ""),
+        )
+    if page in ("Alerts", "Flows"):
+        kind = "alert" if page == "Alerts" else "flow"
+        severity = st.session_state.get("alert-severity")
+        return replace(
+            view,
+            endpoint=st.session_state.get(kind + "-ip", ""),
+            signature=st.session_state.get(kind + "-signature", ""),
+            severity=severity if isinstance(severity, int) else None,
+            event_type=kind,
+            evidence_id=st.session_state.get(kind + "-evidence") or "",
+        )
+    if page == "Overview":
+        view = replace(view, task=st.session_state.get("network-tab", "Connections"))
+        pair = st.session_state.get("visual-pair", "All connections")
+        endpoint = st.session_state.get("visual-endpoint", "All endpoints")
+        return replace(
+            view,
+            connection=tuple(pair.split(" → ")) if pair != "All connections" else None,
+            endpoint=endpoint if endpoint != "All endpoints" else "",
+            evidence_id=st.session_state.get("visual-evidence") or "",
+        )
+    if page == "Needs attention":
+        return replace(view, event_type="alert")
+    return view
+
+
+def activity_header(runtime, run_id):
+    saved = runtime.command("get_run", *SCOPE, run_id)
+    events = saved.get("workflow_activity") or []
+    active = saved["status"] in ("RUNNING", "QUEUED")
+    snapshot = runtime.activity.snapshot()
+    a, b, c = st.columns(3)
+    a.metric("Analysis", saved["status"].replace("_", " ").title())
+    b.metric("Decision", saved.get("disposition", "OPEN").replace("_", " ").title())
+    c.metric("Assigned to", saved.get("owner") or "Unassigned")
+    engine = (saved.get("report") or {}).get("provider")
+    if (
+        not engine
+        and runtime.activity.snapshot()["run_id"] == run_id
+        and saved["status"] in ("RUNNING", "QUEUED")
+    ):
+        engine = runtime.provider.label if runtime.provider else "Offline rules"
+    st.caption(
+        f"Target: {saved.get('title') or saved['question']} · Snapshot: {saved['snapshot_id'][:8]} (watermark {saved['snapshot']}) · Engine: {engine or 'historical details unavailable'} · {'Live execution' if saved['status'] in ('RUNNING', 'QUEUED') else 'Saved result'}"
+    )
+    st.markdown("**Current activity**")
+    if active:
+        elapsed = snapshot["elapsed_seconds"] if snapshot["run_id"] == run_id else 0
+        latest = events[-1] if events else None
+        st.info(
+            f"{saved['status'].title()} · {elapsed:.1f}s elapsed · "
+            + (latest["message"] if latest else "Preparing evidence snapshot")
+        )
+        if latest and latest.get("handoff_to"):
+            st.caption("Next software-controlled stage: " + latest["handoff_to"])
+        elif (
+            latest and latest["kind"] == "model" and latest.get("outcome") == "STARTED"
+        ):
+            st.caption(
+                f"Waiting for model · {max(0, elapsed - latest['elapsed_seconds']):.1f}s · next: validate the returned response"
+            )
+        else:
+            st.caption("Next: finish the active operation and validate its result.")
+    else:
+        st.caption(
+            "Execution "
+            + saved["status"].lower()
+            + " · "
+            + (
+                events[-1]["message"]
+                if events
+                else "Historical activity details unavailable"
+            )
+        )
+        if saved.get("report"):
+            st.success(
+                "Findings saved. Next: review evidence and record your decision."
+            )
+            if st.button("Review findings", key="review-findings-" + run_id):
+                st.session_state["case-tab-" + run_id] = "Findings"
+                st.rerun(scope="app")
+    completed = [e for e in events if e["kind"] == "tool" and e.get("outcome") == "OK"]
+    st.caption(
+        f"Recorded completed queries: {len(completed)} · delivered records across queries: {sum(e.get('returned_count', 0) for e in completed)} · latest 128 activity events retained"
+    )
+
+
+def practice_checkpoints(runtime, run_id=None):
+    saved = runtime.command("get_run", *SCOPE, run_id) if run_id else None
+    return {
+        "Input ready": runtime.command("counts", *SCOPE)["accepted"] > 0,
+        "Target selected": bool(saved and saved.get("seed_event_id")),
+        "Evidence retrieved": bool(
+            saved
+            and any(
+                call.get("status") == "OK" for call in saved.get("tool_activity", [])
+            )
+        ),
+        "Analysis finished": bool(saved and saved["status"] == "COMPLETED"),
+        "Decision recorded": bool(
+            saved and runtime.command("analyst_history", *SCOPE, run_id)
+        ),
+    }
+
+
+def practice_workspace(runtime):
+    st.info(
+        "Practice investigation · synthetic saved input · separate state database · offline rules by default. No packet capture or live sensor."
+    )
+    counts = runtime.command("counts", *SCOPE)
+    if not counts["accepted"]:
+        st.write(
+            "Next: load the synthetic input. Loading evidence does not start analysis."
+        )
+        if st.button("Prepare practice input", type="primary"):
+            runtime.command(
+                "import_file",
+                files("bluecheese.data").joinpath("suspicious-clean.jsonl"),
+                *SCOPE,
+            )
+            st.rerun(scope="app")
+    else:
+        alerts = runtime.command(
+            "list_alerts", *SCOPE, runtime.command("snapshot"), limit=20
+        )
+        by_id = {row["id"]: row for row in alerts}
+        seed = st.selectbox(
+            "Practice target",
+            [None, *by_id],
+            key="practice-target",
+            format_func=lambda value: (
+                "Choose an alert"
+                if value is None
+                else record_label(by_id[value]["normalized"])
+            ),
+        )
+        st.caption(
+            "Choose a target for a bounded investigation. Review its findings and save an analyst action."
+        )
+        st.fragment(run_every=1.0)(practice_run_button)(runtime, seed)
+    st.fragment(run_every=1.0)(practice_progress)(runtime)
+    history = runtime.command("list_runs", *SCOPE)
+    if history or runtime.status()["investigation_pending"]:
+        investigation_workspace(runtime, counts)
+
+
+def practice_progress(runtime):
+    history = runtime.command("list_runs", *SCOPE)
+    selected = st.session_state.get("saved-investigation")
+    if selected not in {row["run_id"] for row in history}:
+        selected = history[0]["run_id"] if history else None
+    checks = practice_checkpoints(runtime, selected)
+    if not selected:
+        checks["Target selected"] = bool(st.session_state.get("practice-target"))
+    st.write(
+        " · ".join(("✓ " if done else "○ ") + label for label, done in checks.items())
+    )
+
+
+def practice_run_button(runtime, seed):
+    if st.button(
+        "Run practice investigation",
+        disabled=not seed or runtime.status()["investigation_pending"],
+    ):
+        runtime.begin_run(
+            *SCOPE,
+            seed_event_id=seed,
+            max_calls=8,
+            max_seconds=investigation_seconds(runtime.provider),
+        )
+        st.session_state["follow-next-run"] = True
+        st.rerun(scope="app")

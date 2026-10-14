@@ -2,6 +2,7 @@
 
 import time
 from collections import deque
+from copy import deepcopy
 from datetime import UTC, datetime
 
 
@@ -25,7 +26,9 @@ class RunActivity:
             self.started = self.clock()
             self.finished = None
 
-    def emit(self, role, status, message, *, kind="software", handoff_to=None):
+    def emit(
+        self, role, status, message, *, kind="software", handoff_to=None, **details
+    ):
         with self.lock:
             if self.started is None:
                 self.started = self.clock()
@@ -40,17 +43,36 @@ class RunActivity:
                     "kind": kind,
                     "message": message[:4096],
                     "handoff_to": handoff_to,
+                    "operation_id": details.get(
+                        "operation_id", f"event-{self.sequence}"
+                    ),
+                    "implementation": details.get("implementation", kind),
+                    **{
+                        key: value
+                        for key, value in details.items()
+                        if key
+                        in (
+                            "arguments",
+                            "returned_count",
+                            "returned_ids",
+                            "truncated",
+                            "outcome",
+                            "duration_seconds",
+                            "started_at",
+                            "finished_at",
+                        )
+                    },
                 }
             )
             if self.run_id and self.persist:
-                self.persist(self.run_id, dict(self.events[-1]))
+                self.persist(self.run_id, deepcopy(self.events[-1]))
 
     def bind(self, run_id):
         with self.lock:
             self.run_id = run_id
             if self.persist:
                 for event in self.events:
-                    self.persist(run_id, dict(event))
+                    self.persist(run_id, deepcopy(event))
 
     def finish(self, state):
         with self.lock:
@@ -69,5 +91,5 @@ class RunActivity:
                 )
                 if self.started is not None
                 else 0.0,
-                "events": [dict(event) for event in self.events],
+                "events": deepcopy(list(self.events)),
             }

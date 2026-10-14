@@ -389,3 +389,36 @@ def test_launcher_cli_alias_with_config(tmp_path):
     assert "Tool-using agents: override" in result.stdout
     assert "/investigate" in result.stdout
     assert (tmp_path / "state/evidence.duckdb").exists()
+
+
+@pytest.mark.parametrize(
+    "content,accepted",
+    [
+        ('```json\n{"action":"answer","argument":"","reply":"Hello"}\n```', True),
+        (
+            'Outside prose\n```json\n{"action":"answer","argument":"","reply":"Hello"}\n```',
+            False,
+        ),
+        ('```json\n{"action":"shell","argument":"","reply":"Hello"}\n```', False),
+    ],
+)
+def test_chat_final_json_wrapper_preserves_schema_validation(
+    runtime, monkeypatch, content, accepted
+):
+    runtime.configure_provider(
+        load_provider(endpoint="http://localhost/v1", model="mock")
+    )
+    monkeypatch.setattr(
+        "bluecheese.interfaces.terminal.request_completion",
+        lambda *args: {
+            "choices": [{"finish_reason": "stop", "message": {"content": content}}]
+        },
+    )
+    terminal, output = session(runtime, ["yes"])
+    if accepted:
+        terminal.chat("Hello")
+        assert output[-1] == "Hello"
+    else:
+        with pytest.raises(ValueError, match="invalid task proposal"):
+            terminal.chat("Hello")
+    assert runtime.investigation_runs == 0

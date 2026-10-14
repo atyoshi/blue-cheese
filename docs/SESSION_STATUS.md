@@ -1,4 +1,159 @@
-# Current verification — 2026-10-13
+# Current verification — user's LLM configuration — 2026-10-13
+
+At the user's request, loaded `~/bc.json` through the existing validated provider
+loader, without editing that file or printing credentials. The isolated model
+preview uses the user's served `unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M`, 300-second
+call timeout, six model attempts, thinking disabled and the file's endpoint/output
+settings. A temporary cached bootstrap configures only the practice runtime once;
+rerenders never reapply settings or call the model. Preview: http://127.0.0.1:8505.
+The prior offline preview remains separate on 8504. No operational history or
+real telemetry was used; no models/datasets/dependencies were downloaded.
+
+The live, six-record frozen investigation completed in **212.85 seconds** with
+verdict **UNCERTAIN**, **6 successful model calls** (3 Investigator, 3 Falsifier),
+**8 evidence queries**, 33 delivered records across queries and 6 unique retrieved
+records. All 6 unique cited records belonged to actual run retrieval. The report
+recognizes the shared flow/tuple and non-zero counters, distinguishes repeated
+updates from independently measured transfer volume, and preserves unavailable
+payload, DNS/TLS/reputation, authorization and endpoint context. Mechanical
+validation and this manual review do not establish detection accuracy.
+
+Firefox showed live model waits, handoffs, completion, the cited report and a
+read-only operational-status answer during the run. Navigation did not start a
+second investigation. A summary returned existing findings. The live test exposed
+an integer-timeout widget type error and a duplicate chat submission when a
+fragment escalated to a full-app rerun. Run budgets now consistently return float
+seconds, and chat dispatch occurs once in widget callbacks. Regressions cover
+JSON integer timeout rendering and one submission per explicit repeated question.
+
+Two conversational responses were rejected for invalid JSON, without executing
+work. The planner now includes its actual output schema explicitly in system
+instructions and accepts only a single exact JSON code fence as a formatting
+wrapper; schema/citation checks remain mandatory. Three formatting/schema tests
+retain rejection of surrounding prose and forbidden actions. A validated model
+`explain` intent now preserves its cited model prose as an answer instead of
+replacing it with a generic view description; a regression covers that behavior.
+
+The final live follow-up succeeded in **31.21 seconds**, returned an explanation
+of the selected established TCP/443 flow, cited its actually retrieved record
+`e2b4fc9dbca25522c9b73c97`, and retained UNCERTAIN and missing context. Offline
+verification while the preview was stopped confirmed the saved report was
+unchanged, only one run existed, and the synthetic analyst action was retained.
+CLI summary/definition reads with the same provider loaded created no run.
+Synthetic artifacts are in the temporary `bluecheese-live-model-ftui7g5y`
+directory: `live-report.json`, `live-report.md`, `validated-chat.json`, and
+`cli-reading.txt`. Diagnostics retain only field/validation metadata, not prompts,
+credentials, model response bodies or private reasoning.
+
+Final verification: **156 passed in 16.20 seconds**; Ruff and diff whitespace
+checks passed. All automated tests remain mocked/offline. Firefox lost native
+window access (`cgWindowNotFound`) again during the final post-fix UI recheck.
+The last successful model explanation was verified through the same runtime
+response path with the preview stopped, then persisted for inspection in the
+restarted preview. The successful final response was not visually rechecked
+during a concurrent selection change. Live cancellation and live follow-up
+revision execution were not exercised; deterministic coverage remains. The
+operational runtime was unchanged. This is one server's compatibility check,
+not commercial readiness or a completed broader roadmap.
+
+# Previous verification — Firefox retry — 2026-10-13
+
+The user-requested Firefox retry succeeded against isolated synthetic state on
+localhost 8504. Reviewed input → selected alert → real retrieval → cited findings
+→ saved analyst action, actual tab changes, scoped explanation, trace filtering,
+refresh and restart. Responsive desktop (1,280px) and narrow (600px) views were
+inspected. No real model calls or operational investigations were started.
+
+Found and corrected stale case metrics/engine state after completion, cramped
+narrow evidence/chat columns, and a local-time timeline labelled UTC. Case status
+and engine now share the independent activity fragment; saved-run labels omit
+transient status, practice controls refresh independently, narrow columns stack,
+and the case timeline uses a UTC scale. Verified these changes in Firefox,
+including automatic completion state and the 12:00 UTC timeline. A new regression
+checks the header's persisted Running → Failed transition without rebuilding the
+case workspace. Full regression verification: **151 passed in 15.75 seconds**;
+Ruff and whitespace checks passed. The UTC display correction was also checked
+in Firefox after a clean process restart.
+
+Two synthetic investigations were explicitly started for the journey/completion
+checks. Offline inspection with the server stopped confirmed two COMPLETED runs,
+thirty practice records, six snapshot records and five queries/nineteen delivered
+records per run, retained analyst history, and an empty parent operational
+workspace. The temporary review server was restarted at http://127.0.0.1:8504;
+saved findings, decision and all checkpoints reappeared. The operational server
+was not changed. See [the review record](GUIDED_INVESTIGATION.md#review-record--2026-10-13).
+
+Firefox's initial `cgWindowNotFound` blocker is resolved. This short manual
+review does not establish comprehensive accessibility, long-session reading
+stability or detection accuracy. The separate real llama.cpp walkthrough remains
+pending user initiation. Broader master-plan choices remain deferred.
+
+# Implementation verification — guided investigation and conversation — 2026-10-13
+
+Implemented the next milestone's software workflow. **Practice investigation**
+uses the existing thirty-record synthetic fixture in a separate, exclusively
+locked `STATE/practice/evidence.duckdb`. Loading, selecting and navigating do not
+start work. Five read-only checkpoints reflect input, selection, recorded
+retrieval, COMPLETED analysis and a saved analyst action. Optional model settings
+apply only to practice; no operational evidence or history is imported there.
+Practice follow-up proposals and successor runs remain in the practice workspace.
+
+Cases show target, fixed snapshot identity, engine and live/saved state above
+stateful tabs. An independent activity header reports real operations, elapsed
+model waits, completed queries and delivered counts, with **Review findings**
+after persistence. Role details and the chronological role/type-filtered trace
+expose operation IDs, implementation, timing, arguments, counts, truncation and
+outcomes; returned records are inspectable beneath their queries. Missing
+historical details are labelled unavailable. Query audits and timeline events are
+cross-checked in tests. Timeout, cancellation and budget outcomes remain distinct.
+No prompts, credentials, private reasoning or invented progress were added.
+Existing database migration SQL/checksums are unchanged; this extends JSON audits.
+
+GUI and CLI share immutable captured `ViewContext` and read-only `summarize` and
+`explain` handling. Definitions and operational state work offline; descriptive
+answers use selected, snapshot-bound retrieval and inspectable IDs, with explicit
+sample limits and unknowns. Case connection selection highlights a single graph
+edge and filters an evidence drawer. Submitted questions retain their original
+tab/selection even if navigation changes during a model response. New analysis
+remains a proposal or explicitly approved task. Terminal `/summary [RUN_ID]` and
+`/explain TERM` preserve existing structured slash inspections and terminal
+escaping. Actual bounded command output enters terminal model context, with that
+transmission stated in its approval. Proposals never establish execution.
+
+Analytical pages preserve reading state by refreshing activity/chat separately
+from evidence. **Refresh now** explicitly reloads evidence; keyed tabs, filters
+and selections persist. Completion does not force another tab. Automated tests
+found and corrected an invalid fragment-only chat rerun during a full-page run.
+AppTest does not support user tab clicks in this installed version; captured-tab
+logic has a separate test, while browser interaction/scroll stability still needs
+visual verification.
+
+Measured verification: `.venv/bin/pytest -q` — **150 passed in 13.57 seconds**;
+`.venv/bin/ruff check src tests` and `git diff --check` passed. Twenty-four new
+synthetic test cases cover read-only intents with an unavailable model, all plain
+term definitions, actual CLI command context and explicit targets, bounded
+connection summaries, captured model selections, actual trace/query agreement,
+practice journey/decision/isolation/repeated refresh, timeout, source gap and
+interrupted restart. Existing failure, slow-model, cancellation, citation,
+ingestion, CLI and legacy regressions remain. Automated tests made no external
+model calls or downloads.
+
+Firefox was opened against an isolated synthetic review server on localhost
+8504. The initial application header loaded, then native UI access failed with
+`cgWindowNotFound`, including reconnection/reset attempts. No practice checkpoint
+received a completed visual review. Desktop/narrow layouts and reading position
+remain unverified. The isolated review server was stopped; the operational server
+and database were not restarted or used for this review. No live model call was
+made. The separate user-initiated walkthrough using existing llama.cpp settings
+is documented in [GUIDED_INVESTIGATION.md](GUIDED_INVESTIGATION.md).
+
+Restart the app process after upgrading cached runtime code, then open **Practice
+investigation**. This establishes synthetic workflow behavior, not detection
+accuracy or commercial readiness. Live walkthrough/visual acceptance and the
+choice of shadow evaluation, case grouping or additional context remain pending;
+no broader master-plan completion is claimed.
+
+# Previous workflow verification — 2026-10-13
 
 The operational GUI now follows the small-security-team alert-to-decision milestone
 in [WORKFLOW.md](WORKFLOW.md): priority-ranked alert pages, named case targets,

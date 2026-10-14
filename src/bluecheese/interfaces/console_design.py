@@ -25,6 +25,7 @@ def apply_design():
       .stButton button:hover, .stDownloadButton button:hover { border-color: #38bdb4; }
       button:focus-visible, input:focus-visible { outline: 2px solid #38bdb4 !important; outline-offset: 3px; }
       @media (max-width: 760px) {
+        [data-testid="stColumn"] { flex: 1 1 100% !important; min-width: 100% !important; }
         .stMainBlockContainer { padding: 1rem; }
         [data-testid="stMetricValue"] { font-size: 1.3rem; }
       }
@@ -74,5 +75,8 @@ def investigation_link(key):
 def start_investigation(runtime, scenario, variant, **settings):
     """Only called by explicit UI actions; route to the submitted work."""
     runtime.begin_run(scenario, variant, **settings)
-    st.session_state["show-submitted-investigation"] = True
+    if runtime.practice:
+        st.session_state["follow-next-run"] = True
+    else:
+        st.session_state["show-submitted-investigation"] = True
     st.rerun(scope="app")
