@@ -18,7 +18,9 @@ investigator by default. This is a single-analyst development release: individua
 authentication, roles and shared SOC deployment remain unfinished. Native macOS
 and local Suricata integration have been tested; Docker execution remains unverified.
 One live llama.cpp model passed the [CLI compatibility checks](docs/CLI_MODEL_VALIDATION.md).
-See [current verification](docs/TESTING.md) and
+See the [README verification record](docs/README_VERIFICATION.md),
+[analyst workflow verification](docs/ANALYST_WORKFLOW_VERIFICATION.md),
+[current verification scope](docs/TESTING.md) and
 [release gates](docs/RELEASE_GATES.md).
 
 Quick links: [install](#install-and-open-the-console) ·
@@ -27,14 +29,15 @@ Quick links: [install](#install-and-open-the-console) ·
 [investigate](#investigate-and-record-a-decision) ·
 [backup and maintenance](#check-back-up-and-maintain-state) ·
 [troubleshooting](#troubleshooting) ·
-[synthetic presentation](#synthetic-presentation-and-offline-bundles).
+[walkthrough](#first-walkthrough-connect-inspect-investigate).
 
 ## Install and open the console
 
 Run these commands **from the repository root**, where this README and the
 `bluecheese` launcher live. Use Python **3.11 or newer**; check with
 `python3 --version`. If necessary, substitute an installed newer interpreter,
-such as `python3.13`, in the first command. Installing dependencies needs
+such as `python3.13`, in the first command. On this verified macOS installation,
+`python3` is 3.9 while `python3.13` is supported. Installing dependencies needs
 package-registry access.
 
 ```bash
@@ -47,17 +50,19 @@ python3 -m venv .venv
 For later launches, just run `./bluecheese`. The launcher uses this checkout's
 `.venv` automatically; environment activation is unnecessary. Open the **local
 URL printed in the terminal**, normally http://127.0.0.1:8501. If the default port
-is busy, Streamlit tries the next available port. Leave the terminal running and
+is busy, the launcher selects the next available port through 8600. Leave the terminal running and
 stop the app with **Ctrl+C**. Closing the browser tab does not stop the app.
 
 `./blue-cheese` is a compatibility wrapper for `./bluecheese`; both accept the
 same arguments and launch the same application.
 
-The console initially has no telemetry. It does not load demonstration scenarios
-or start Suricata automatically. **Practice investigation** offers a separate
-synthetic workspace with five checkpoints; see [the guided walkthrough](docs/GUIDED_INVESTIGATION.md).
-Install/configure Suricata separately if you
-want live sensor output; an existing EVE file needs no running sensor.
+The console initially has no telemetry. Connect an existing EVE file or configure
+Suricata separately for live output. The [walkthrough below](#first-walkthrough-connect-inspect-investigate)
+uses the ordinary interface with an example file.
+
+Light and dark themes follow your system preference initially. Change the theme
+in **Settings → Appearance** or use the theme button in the header. The checkout
+includes compiled frontend assets; Node is needed only when changing the frontend.
 
 | Task | Command |
 | --- | --- |
@@ -89,9 +94,10 @@ working directory. The link depends on this checkout remaining in place.
 `/summary [RUN_ID]` returns a concise summary of an explicit run, the last actual
 displayed/investigated context, or a labelled bounded workspace overview.
 `/explain TERM` explains a term or the selected evidence. Natural summaries and
-explanations use the same read-only handling in the GUI and CLI, including without
-a model. They never launch an investigation. Existing slash inspection commands
-retain structured output and approvals. See [the practice and conversation walkthrough](docs/GUIDED_INVESTIGATION.md).
+explanations remain read-only. With a configured model, GUI chat answers reading
+questions conversationally; explicit CLI reading commands also work offline.
+Neither starts an investigation. Existing slash inspection commands
+retain structured output and approvals. See the [walkthrough](#first-walkthrough-connect-inspect-investigate).
 
 After installation, start the terminal with one command:
 
@@ -129,6 +135,7 @@ commands select tasks directly; the equivalents above are `/triage`, `/network`,
 | `/network` | Summarize observed endpoints, protocols and connections |
 | `/investigate QUESTION` | Run the agent workflow and save a cited report |
 | `/report [RUN_ID]` / `/history` | Read the latest or selected report, or list runs |
+| `/summary [RUN_ID]` / `/explain TERM` | Summarize the current context or explain a term without launching work |
 | `/config [PATH]` / `/rules` | Select a model config file or offline rules |
 | `/test` | Check the model endpoint's tool and report capabilities |
 | `/status` | Show source and investigation state |
@@ -221,7 +228,7 @@ For example, retain your server's model identifier and set these fields in your 
 
 ```json
 {
-  "endpoint": "http://grain.utep.edu:11434/",
+  "endpoint": "http://model-server.example:8080/",
   "model": "your-served-model-id",
   "allow_remote": true,
   "allow_insecure_http": true
@@ -229,7 +236,7 @@ For example, retain your server's model identifier and set these fields in your 
 ```
 
 This base URL resolves to `/v1/chat/completions`; the server must implement the
-OpenAI-compatible Chat Completions API. Reload with `/config ~/bc.json` after
+OpenAI-compatible Chat Completions API. Reload with `/config /absolute/path/config.json` after
 restarting an already-running terminal to pick up the updated code. Model
 investigations send normalized evidence to that endpoint. Use `json_mode: true`
 for servers without strict JSON Schema; local report/citation validation still
@@ -248,277 +255,122 @@ reduce generation latency. Omit it to preserve the server default; other servers
 may not support this extension. Environment configuration can use
 `BLUECHEESE_ENABLE_THINKING=false`. Citation and report validation still apply.
 
-With a provider configured, ordinary chat asks approval before sending your
-message and up to three previous chat exchanges to the model's task planner.
-The model can answer general questions or select an allowlisted task for separate
-approval; you do not need to retype a slash command. For example, “what do you
-think about these alerts?” should propose an investigation, while “list alerts”
-should propose an alert listing. The original investigation question enters the
-bounded evidence workflow, which retrieves evidence, validates citations and
-saves a report. The planner itself receives no telemetry or task results, so use
-an investigation for evidence questions. Invalid task proposals execute nothing.
-Slash commands bypass the planner and retain their existing approvals. Without
-a provider, common task requests still route locally to offline rules.
+With a provider configured, ordinary terminal chat asks approval before sending
+your message, up to three previous chat exchanges, and the last displayed command
+result (bounded to 8 KiB) to the model's task planner. The model can answer from
+that context or select an allowlisted task for separate approval; you do not need
+to retype a slash command. Ask explicitly to “investigate whether this alert is
+supported by the flows” to request new analysis. Summaries and explanations of
+existing findings do not launch an investigation. The original investigation
+question enters the bounded evidence workflow, which retrieves evidence,
+validates citations and saves a report. GUI chat receives scoped workspace/case
+context and presents actions for **Run proposed action**. Invalid task proposals
+execute nothing. Slash commands bypass the planner and retain their existing
+approvals. Without a provider, common task requests route locally to offline rules.
 
 ## First walkthrough: connect, inspect, investigate
 
-With an existing Suricata EVE file:
-
-1. In the sidebar, expand **Sensor connection**, select **EVE file**, and enter
-   the file's absolute path on the machine running Blue Cheese.
-2. Click **Connect sensor**. Watch **Accepted records**, **Alerts** and
-   **Quarantined records**. Existing lines load in bounded batches; new lines
-   continue arriving if Suricata is writing the file.
-3. Start on **Needs attention** and click **Investigate** on an alert. Use **Network** to inspect activity, or **Alerts** for detailed filtering. Filter if needed and
-   choose a record under **Inspect evidence**. Expand **Original evidence and
-   normalized fields** to read the exact log, parsed JSON and canonical fields.
-4. Click **Investigate selected alert**, then open **Investigations**. Select the
-   completed run under **Saved investigation** and review its result and citations.
-5. Use **Export JSON** or **Export Markdown** to download the report. Enter your
-   name, disposition and note under **Analyst disposition**, then click
-   **Save analyst action**.
-
-To learn without a sensor, use a **separate synthetic practice state**:
+Launch an isolated workspace using the same command used for normal operation:
 
 ```bash
-./bluecheese --data-dir practice-state doctor --eve "$PWD/tests/fixtures/sample_eve.json"
-./bluecheese --data-dir practice-state gui
+# Print the absolute fixture path to paste into Settings.
+.venv/bin/python -c "from pathlib import Path; print(Path('tests/fixtures/sample_eve.json').resolve())"
+./bluecheese --data-dir walkthrough-state gui
 ```
 
-Connect the absolute path printed by doctor as the EVE file. This small bundled
-fixture is synthetic; its old timestamps are expected. It lets you exercise the
-same controls without generating network traffic. For clean/poisoned comparisons
-and paced synthetic replay, use the [separate presentation](#synthetic-presentation-and-offline-bundles).
-To explore the included `bad.pcap` capture instead, follow the
-[PCAP conversion steps](#preserved-cli-and-legacy-web-ui); that path requires Suricata.
+1. Open **Settings → Evidence source**. Choose **EVE file**, enter the absolute
+   path to `tests/fixtures/sample_eve.json`, and click **Import once**.
+2. Open **Alerts**. Select the TeamViewer detection, review the endpoints and
+   scope, and click **Investigate**.
+3. In the case, review **Findings**. Open a citation to inspect **Raw**, **Parsed**,
+   and **Normalized** evidence. Sensor detection does not establish compromise.
+4. Open **Evidence**. Select a timeline bin or connection to filter the records.
+   Open **Activity** to inspect the recorded agent operations.
+5. Open **Ask Blue Cheese** and ask “Summarize this case”. Any proposed action
+   requires **Run proposed action** before execution.
+6. Under **Decision**, enter analyst attribution, assignment, disposition, and
+   notes, then click **Save decision**.
+7. Download **JSON** or **Markdown** from Findings. Use **New revision** to analyze
+   again with a new frozen snapshot. Earlier reports remain available in history.
+8. Stop with Ctrl+C, launch the same state directory, and reopen the case.
+
+This example uses saved synthetic telemetry. It measures workflow behavior, not
+model accuracy or detection quality. For another demonstration, substitute your
+own EVE file and follow these same steps.
 
 ## Connect telemetry
 
-Only EVE `alert` and `flow` records are currently accepted as evidence. Other
-record types, including DNS, and malformed records are quarantined. One input
-source can be connected per runtime. Disconnect before changing inputs. Stored
-evidence remains available while disconnected, and reconnecting after an app
-restart is explicit.
+Under **Settings → Evidence source**, select an EVE file or Unix stream. Paths
+refer to the machine running Blue Cheese. **Import once** reads a completed EVE
+file up to 16 MiB. **Connect** follows a file in bounded batches, including files
+larger than that limit. **Disconnect** stops reception while retaining evidence.
 
-### EVE file: growing log or completed capture
+For file sources, optionally enable **Recover matching rotated files**. Truncation
+or an unresolved source gap stops ingestion and records a source incident. Inspect
+**Settings → Source diagnostics** for quarantine and incidents. Unsupported event
+types and malformed records are quarantined; accepted raw text remains exact.
 
-Select **EVE file**, enter **Suricata EVE file**, and click **Connect sensor**.
-The file must already exist and be readable by the Blue Cheese process. The
-field starts empty unless `BLUECHEESE_EVE` is configured before launch:
+For a Unix stream, choose an unused short socket path in an existing directory
+and click **Connect**. Configure Suricata's EVE output using that path:
 
-```bash
-export BLUECHEESE_EVE=/absolute/path/to/eve.json
-./bluecheese
+```yaml
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: unix_stream
+      filename: /absolute/path/eve.sock
+      types: [alert, flow, dns, http, tls]
 ```
 
-Paths refer to the server running the app, not necessarily the browser's machine.
-Missing files, directories and named pipes are rejected before ingestion starts.
-A completed EVE capture works too; it remains connected waiting for more lines
-after reaching the end. An unfinished last line waits for its terminating newline.
+Blue Cheese listens; Suricata connects. This is EVE transport, not a sensor control
+socket. Keep the sensor's existing capture and rule configuration. The socket is
+owner-only and requires the same filesystem namespace. Existing socket paths are
+never overwritten. Received bytes are spooled before parsing, with a 256 MiB limit
+per socket path. Disconnects and unfinished records require explicit recovery;
+transport does not guarantee end-to-end delivery.
 
-Keep **Recover rename rotation** enabled for bounded rename-and-create recovery.
-The follower drains the old descriptor for five seconds before switching to a
-persisted new generation. Matching archives named after the input, such as
-`eve.json.*`, can be recovered on restart through a bounded directory search.
-Truncation, missing archives, partial rotated records and multiple rotations
-during draining stop ingestion visibly. Late writes to retired generations,
-arbitrary edits to earlier bytes and undetectable copytruncate/regrowth are
-outside automatic recovery. Inspect **Sensor health** when ingestion stops.
-
-### Unix stream: local EVE without a sensor-side input log
-
-1. Select **Unix stream** and keep the suggested **Unix socket path**, or choose
-   an unused short path in an existing directory.
-2. Click **Connect sensor**. **Listening** means Blue Cheese is ready; no producer
-   is connected yet.
-3. Expand **Suricata stream configuration** and merge the generated YAML into
-   your sensor's existing EVE output configuration. Preserve its capture settings
-   and rules. The generated `filename` matches your selected socket path.
-4. Start/restart Suricata. **Streaming** means a producer has connected. Accepted
-   alert/flow records populate the workspace.
-
-Blue Cheese listens and Suricata connects. This is EVE JSON transport using
-`filetype: unix_stream`, not Suricata's command/control socket or `unix_dgram`.
-Use the same filesystem namespace on Linux/macOS; run Suricata as the socket's
-OS owner or root. The socket is owner-only. Native launch is the simplest path:
-the standard read-only Docker telemetry mount does not expose a container socket
-to a host sensor.
-
-Received bytes are persisted in a receipt spool before parsing. The limit is
-**256 MiB per socket path**. Reaching it stops visibly without deleting evidence;
-archive the stopped state and choose a new state to continue. A producer disconnect
-stops ingestion and records a continuity incident; reconnect explicitly. Unfinished
-prior records are retained and never merged with a new producer after restart;
-choose a new socket path/state when warned. Existing socket paths, including stale
-ones left by abrupt termination, are never replaced automatically.
-
-Socket transport does not guarantee end-to-end delivery. Suricata can drop events
-when the receiver is unavailable or congested; monitor the sensor's drop statistics.
-Use file tail for persistent sensor-side buffering and easier restart recovery.
-
-### Produce EVE with Suricata
-
-Suricata is required for PCAP conversion and live capture; importing an existing
-EVE file needs no Suricata installation. On Debian/Ubuntu, install the distribution
-package and check that the executable is on PATH:
-
-```bash
-sudo apt-get update
-sudo apt-get install suricata
-suricata --build-info
-```
-
-Package versions vary. For current stable packages and other operating systems,
-follow the official [installation guide](https://docs.suricata.io/en/latest/install.html)
-and [quickstart](https://docs.suricata.io/en/latest/quickstart.html), including
-`suricata-update` for detection rules. The test fixture below supplies its own
-rules; a real capture needs rules and network settings appropriate to your sensor.
-
-Configure Suricata with detection rules and EVE `alert` and `flow` outputs. For
-example, on a Linux sensor, adjust the configuration path and capture interface:
-
-```bash
-mkdir -p telemetry
-sudo suricata -c /etc/suricata/suricata.yaml -i eth1 -l "$PWD/telemetry"
-```
-
-Connect the resulting `eve.json` in Blue Cheese. The application user needs read
-access to that file and its parent directories. For an isolated replay exercise,
-run `sudo tcpreplay --intf1=eth1 capture.pcap` on a replay host whose traffic the
-sensor can see. Blue Cheese does not generate scans, replay packets or manage the
-sensor process. Its presentation replay only appends synthetic log records.
+Suricata performs capture and detection separately. To convert an existing PCAP,
+use the preserved CLI import or the [offline capture preparation commands](#prepare-a-capture-and-compare-investigations).
+Connect the resulting EVE file in Settings.
 
 ## Explore the workspace
 
-Use the sidebar's **Workspace** selector to move between these pages:
+**Alerts** presents priority-ranked, paginated review groups. Counts describe the
+visible 20-alert page. Filters apply to that page; older alerts remain accessible.
+Selecting an alert opens details and its investigation or existing case.
 
-| Page | How to use it |
-| --- | --- |
-| **Needs attention** | Review priority-ranked alert groups and open a named investigation. Ask about workspace state in chat. |
-| **Network** | Spot activity patterns, focus on ranked endpoints/connections, and drill down to evidence. |
-| **Alerts** | Filter by exact endpoint IP, signature substring and sensor severity; select an alert to inspect or investigate. |
-| **Flows** | Filter by exact endpoint IP and inspect flow state, endpoints and byte counters. |
-| **Investigations** | Follow a named target, ask contextual questions, inspect actual agent queries and cited findings, assign and record a decision. |
-| **Settings** | Configure models, automatic investigation and queued retries. |
-| **Sensor health** | Inspect source status, committed byte offset, spool path, rotation notices, quarantine reasons and continuity incidents. |
+**Cases** holds saved investigations and analyst decisions. Each case freezes a
+named target and evidence snapshot. The selected alert's source and directed
+endpoint pair within ±5 minutes define its scope. New arrivals do not change saved
+findings. **New revision** creates a successor with a new snapshot.
 
-On **Network**, use **Connections**, **Activity** and **Evidence** to move from
-patterns to individual records. Endpoint and connection focus apply across all
-three tabs; **Reset focus** clears both. The timeline uses event time in UTC:
-hover for values, Shift + scroll to zoom, drag to pan, and double-click to reset.
-Normal scrolling leaves its scale unchanged. Orange map edges contain alerts;
-blue edges contain only flows in the displayed view.
+**Network** links an activity timeline, directed connections, protocols, and a
+record table. Choose a 250/1,000/5,000-record window and endpoint, then select a bin
+or connection. Visual filters do not change investigation membership. Connection
+diagrams show at most 12 directed pairs; case records are capped at 1,000.
 
-Visuals default to the most recently received **1,000** accepted records, with
-250/5,000 options. Endpoint focus applies within that window. The map shows up to
-12 IP pairs and evidence detail up to 50 matching records. Use **Alerts** and
-**Flows** for full pagination at 50 records per page, newest received first.
-Visual limits and table filters do not define investigation membership.
-
-Counts are log records, not unique sessions or packets. Sensor severity describes
-rule priority; an alert alone does not establish compromise. A zero in a chart
-cannot establish uninterrupted coverage, and an old capture retains its original
-event times.
-
-**Learning mode** adds explanations of IPs, ports, TCP/UDP, flows, alerts and
-record fields. It is off by default for a compact view. **Auto refresh** refreshes the
-operational workspace every two seconds. Turn it off while reading or editing;
-ingestion continues. Changing a filter or pressing **Refresh now** reloads the
-view. **Sensor connection** collapses once evidence is available; expand it to
-connect or disconnect.
+**Refresh view** reloads displayed data without starting work. Activity and chat
+update independently while the case's reading state remains stable.
 
 ## Investigate and record a decision
 
-Start with the [alert-to-decision walkthrough](docs/WORKFLOW.md). Case chat,
-connections, agent activity and decisions share an explicit investigation target.
-Sensor totals are cumulative; they are available in the expandable status panel.
-Refresh shows completion and whether new accepted records arrived.
+Click **Investigate** in an alert's details. Triage and correlation use rules;
+Investigator and Falsifier use the configured engine. Activity shows actual
+operations and elapsed time. Cancellation is cooperative: an active provider
+request must return before the run can stop.
 
-### Choose scope and budget
+Review source observations, assessed findings, citations, alternative explanations,
+unknowns, and next checks. Retrieval validation checks citation provenance; it
+cannot establish whether a claim follows from its evidence. Host processes,
+identities, asset inventory, and approved scanning schedules are not connected.
 
-**Investigate selected alert** on Alerts, or **Investigate this alert** in
-Network, freezes a same-source endpoint neighborhood within five minutes of
-that alert. On **Investigations**,
-set **Case question**, choose a **Scope alert**, and click **Start investigation**.
-The scope selector lists the latest 50 alerts; select older alerts from **Alerts**.
-You can also choose **Whole external scope**. Each snapshot has a **10,000-record
-limit**; if the whole scope exceeds it, choose an alert neighborhood.
+Analyst decisions persist separately from machine reports. Attribution is local,
+not an authenticated identity. Assignment and disposition appear in the case
+header and Cases list. Decision history and older run revisions remain readable.
 
-The case question labels the case. The rule-based investigator evaluates alert/flow
-evidence rather than answering arbitrary natural-language questions. Triage assigns
-review priority, correlation proposes links with provenance and ambiguity, and one
-bounded seed group is investigated per run.
-
-Expand **Advanced: manual scope and investigation limits** to set **Tool calls**, **Seconds (cooperative
-limit)** and **Check contradicting evidence**. The operational defaults are eight
-tool calls and five seconds with rules, or a cooperative model budget derived from the configured call timeout and attempt limits.
-The selected-alert shortcut uses these fixed defaults; edit budgets through the
-Investigations page for a custom run. The presentation defaults are six calls and
-five seconds. Retrieval is capped at 100 records and 64 KiB per call. Failed tool
-attempts consume budget; records withheld by delivery limits cannot be cited.
-
-One investigation runs at a time, while ingestion continues. **Cancel
-investigation** requests cooperative cancellation: an active provider call must
-return before it takes effect. Time limits are cooperative too. Restart marks
-unfinished runs interrupted; saved completed reports survive.
-
-The **Agent activity** tab follows the selected investigation. Actual query
-arguments, returned records, rule outputs, model waits and errors remain tied to
-its run. It refreshes every second independently of telemetry auto refresh.
-Incremental activity persists for failed and interrupted runs as well as completed
-reports; older runs with no recorded trace are labelled accordingly.
-
-**Ask Blue Cheese** uses this case's frozen evidence and recorded activity. Model
-explanations validate citations against bounded chat retrieval. New analysis or
-source changes are explicit proposals; ordinary reading does not launch another
-investigation. Without a configured model, local chat commands remain available.
-
-### Review the report before deciding
-
-Select a run under **Saved investigation**; **Run history** shows saved statuses.
-Review these parts in order:
-
-1. **Assessment**, hypothesis and **Run status**. A completed run can still have
-   an uncertain assessment; failed, interrupted, incomplete and cancelled runs
-   are distinct from a completed uncertain report.
-2. **Unresolved questions** and **Limits and warnings**, including source incidents
-   and budget limits.
-3. **Verify cited evidence** → **Inspect citation** to read the exact records
-   behind supporting and contradicting IDs.
-4. **Reasoning and retrieval audit** for the disconfirmation test, triage,
-   correlation, Falsifier query results and consumed budget.
-
-`SUSPICIOUS` is a lead supported by the current policy, and `UNCERTAIN` means the
-available evidence does not resolve the question. The synthetic presentation can
-also produce `BENIGN_CONFOUNDER` for matching closed zero-byte flows. Operational
-rule-based review does not infer benign intent from those flows. Citations are
-checked against actual retrieval and the frozen snapshot; that check does not
-establish that every claim is semantically correct. Review the evidence yourself.
-
-Use **Export JSON** for a structured report or **Export Markdown** for a readable
-copy; these are browser downloads. Reports retain their snapshot and citations
-as later telemetry arrives. Downloads contain the report, not a full database
-backup. Use **Create successor investigation** to make a new run linked to the
-selected report with a new snapshot; the prior report stays unchanged.
-
-Under **Analyst decision**, enter **Analyst**, set **Assigned to**, choose `OPEN`, `INVESTIGATING`,
-`ESCALATED`, `CLOSED_BENIGN` or `CLOSED_INCIDENT`, add a **Note**, and click
-**Save analyst action**. Actions persist separately from the machine report and
-appear below the form. Analyst names are local attribution, not authenticated
-identities. Closing a case does not release its pinned evidence for retention.
-
-### Use the automatic queue
-
-Open **Settings → Automatic investigation and retry queue**, enable **Investigate incoming alerts
-automatically**, then click **Save automatic investigation setting**. Automatic processing is
-opt-in, runs one bounded investigation at a time while ingestion is connected,
-and resets to off after restart. Durable work remains available after restart.
-
-Use **Investigate next queued alert** to process queued work manually. For failed,
-interrupted, cancelled or incomplete work, choose **Retryable alert**, click
-**Requeue selected alert**, then start the next queued alert or enable automatic
-processing. Automatic grouping into independently scoped cases, cooldowns and
-manual membership editing remain unfinished.
+Enable automatic investigations under **Settings → Automatic investigations**.
+This setting resets to disabled on restart. Failed queue items can be retried
+explicitly. Normal browsing, refreshes, and chat answers do not schedule analysis.
 
 ## Check, back up and maintain state
 
@@ -563,7 +415,7 @@ copied database's hashes, schema and evidence count. Restore preserves reports,
 frozen interpretations, tool traces and stored evidence. **External telemetry and
 receipt/replay spools are not included.** Preserve these separately while stopped
 if you need them for continuity. Restore does not relocate recorded source paths
-or cursors; review Sensor health and source availability before reconnecting.
+or cursors; review Settings → Source diagnostics and source availability before reconnecting.
 Checksums detect corruption, not authenticity.
 
 Back up before upgrading. With the app stopped, update the checkout and reinstall
@@ -596,13 +448,97 @@ cases. Tombstones prevent removed occurrences from being reimported, and receipt
 sequence remains monotonic. Retention does not delete source logs, quarantine,
 reports or backups and does not promise immediate filesystem shrinkage.
 
+## Investigation findings and optional decision advice
+
+Version-2 findings separate activity assessment, observed impact, evidence limits
+and case-specific next checks. Review **Observed protocol activity** before the
+**Working hypothesis** (labelled **UNVERIFIED**) and assessed findings. HTTP methods, paths,
+response statuses and response lengths come from retrieved source records;
+response length does not establish upload size. Citations establish retrieval
+provenance, so review whether each interpretation follows from its evidence.
+Next checks are recommendations requiring analyst action.
+
+Under **Settings → Decision advice**,
+select **Model endpoint**, configure an existing native `/v1/systemone` endpoint
+and model, then click **Apply**. Advice is disabled by default. **Test connection**
+makes one synthetic request. Applying settings or
+refreshing does not call the endpoint. Settings last for this process.
+
+An enabled investigation makes at most one advice request using scoped retrieved
+evidence. Scores are uncalibrated and do not change alert order, suppress alerts
+or authorize actions. A chat endpoint alone does not establish native decision
+support; live validation awaits a compatible decision model.
+
+### Prepare a capture and compare investigations
+
+Use installed Suricata, an explicit configuration and rules file, and **new output
+directories**. This processes packets offline without transmitting them:
+
+```bash
+.venv/bin/python -m bluecheese.application.prepare_case_study \
+  --pcap bad.pcap --config /path/to/suricata.yaml \
+  --rules /path/to/suricata.rules --out capture-study
+```
+
+On Homebrew installations, the configuration is commonly
+`/opt/homebrew/etc/suricata/suricata.yaml` and rules are commonly
+`/opt/homebrew/var/lib/suricata/rules/suricata.rules`; check your installation.
+The output includes `capture-manifest.json`, sensor diagnostics and
+`capture-study/sensor/eve.json`. Connect that EVE file in the GUI.
+
+For a quick offline check using the bundled synthetic EVE:
+
+```bash
+.venv/bin/python -m bluecheese.application.compare_investigations \
+  --eve tests/fixtures/sample_eve.json --out offline-comparison \
+  --repetitions 3 --max-calls 12
+```
+
+For actual model investigations, replace `--eve` with the prepared EVE path and
+add `--provider /absolute/path/config.json`. Add `--decision-profile decision.json`
+only for a configured native decision endpoint. Without it, advised arms are
+recorded as `NOT_CONFIGURED`; the command does not establish an advice comparison.
+Each case uses isolated state, matching snapshot digests and alternating arm order.
+Reports and `comparison.json`/`comparison.md` record outcomes, calls and timings.
+Human review fields remain unmeasured until completed by an analyst. Model runs
+can take several minutes each; cancellation is cooperative. Failed or incomplete
+runs write their index before returning a nonzero status. Existing output
+directories are refused.
+
+See [assessment configuration and comparison details](docs/INVESTIGATION_ASSESSMENTS.md)
+for the decision-profile format, seed selection and validation boundaries. Three
+recorded real-capture model runs completed, but generated prose contained
+attribution errors and took 472–648 seconds per run. This is case-specific
+validation, not detection accuracy or commercial readiness. Shared team hosting
+remains separate release work.
+
+## Reading findings and asking questions
+
+Case details separate **Open questions** about the selected evidence from actual
+**Analysis limits** such as truncated retrieval or a failed check. Shared definitions
+and standard limitations are available under **How to interpret findings**, rather
+than repeated in each case.
+
+Chat presents answers as paragraphs and lists, with separate evidence citations.
+“Summarize this case” uses the case snapshot even after inspecting an individual
+record. Questions about a selected record retain that selection. Reading questions
+cannot launch work; requested actions remain explicit proposals. If a model answer
+fails validation or the provider is unavailable, the application labels the error
+and can show a read-only saved-evidence fallback.
+
+For slow inference, use a **300-second request timeout** in Settings. The setting
+is process-local; preserve it in your terminal configuration when using the CLI.
+An active request may take the full timeout to return after cancellation. Failed
+runs retain request timing, usage when supplied, and validation diagnostics under
+Activity/audit. A returned response still needs structure, citation and factual
+review; successful execution does not establish accuracy.
+
 ## Optional model provider
 
-No model is downloaded or required. In the operational GUI, open **Agents and
-model endpoint** in the sidebar, select **Model agents**, and enter your existing
+No model is downloaded or required. In the operational GUI, open **Settings → Investigation engine**, select **Model endpoint**, and enter your existing
 OpenAI-compatible API base URL (such as `http://127.0.0.1:8080/v1`), model name,
 and optional API key. You may choose a separate Falsifier model on the same server.
-Click **Apply agent settings**, then **Test agent connection**. The test sends
+Click **Apply**, then **Test connection**. The test sends
 synthetic observations, exercises a tool-call round trip and structured report
 output for each distinct model, and may incur endpoint usage. It sends no stored
 telemetry. Choose **JSON object** if your server lacks strict JSON Schema support;
@@ -612,7 +548,7 @@ Settings apply to subsequent investigations without restarting and last for the
 application process. Credentials entered in the GUI stay in memory; they are not
 written to disk or reports. An API key environment variable is also supported.
 Provider changes and connection tests are blocked during investigations. Select
-**Rule-based** and apply to return to offline rules.
+**Rules** and apply to return to offline rules.
 
 Alternatively, configure an existing server **before launch**:
 
@@ -623,7 +559,7 @@ export BLUECHEESE_MODEL=your-served-model-id
 ```
 
 Set `BLUECHEESE_MODEL_API_KEY` through your environment/secret manager if needed.
-The sidebar identifies the selected provider. Doctor validates configuration but
+Settings identifies the selected engine. Doctor validates configuration but
 never calls the endpoint. Test a manual investigation and inspect its status,
 errors and citations to check your actual server/model; the recorded CLI checks
 cover one server/model. Environment changes require restarting. To return to rules on launch,
@@ -636,8 +572,8 @@ unset BLUECHEESE_MODEL_ENDPOINT BLUECHEESE_MODEL BLUECHEESE_MODEL_API_KEY BLUECH
 
 Remote endpoints require `BLUECHEESE_ALLOW_REMOTE_MODEL=true` and default to HTTPS.
 HTTP additionally requires `BLUECHEESE_ALLOW_INSECURE_HTTP=true`. Enabling
-them sends normalized observations, including IPs and detection signatures, to
-the configured endpoint; exact raw logs are omitted. The Investigator can request
+them sends normalized observations, including IPs, detection signatures, DNS
+names, HTTP paths and TLS names, to the configured endpoint; exact raw logs are omitted. The Investigator can request
 bounded evidence queries; the Falsifier then challenges its candidate assessment,
 can retrieve counterevidence, and returns a revised report. Both share the run's
 tool/time budgets and a configurable provider-call cap (default six, split between
@@ -664,13 +600,13 @@ structured assessment adapter when launching from environment configuration.
 | Connected but no new records | Check Suricata output, file growth and enabled alert/flow output. A completed capture simply waits at EOF; old timestamps remain old. |
 | Unix stream stays Listening | Start the producer after the receiver; verify the generated socket path, `unix_stream` mode, filesystem namespace and OS permissions. |
 | Socket path already exists or is too long | Use a new short unused path in an existing directory; existing paths are never overwritten automatically. |
-| Stream disconnect, partial prior record or spool quota | Inspect Sensor health. Reconnect explicitly after a clean disconnect; use a new socket path/state when warned about partial records, or a new archived state after quota. |
-| Quarantined records increase | Inspect reasons in Sensor health. Unsupported event types and malformed/oversized records are quarantined rather than accepted. |
+| Stream disconnect, partial prior record or spool quota | Inspect Settings → Source diagnostics. Reconnect explicitly after a clean disconnect; use a new socket path/state when warned about partial records, or a new archived state after quota. |
+| Quarantined records increase | Inspect reasons in Settings → Source diagnostics. Unsupported event types and malformed/oversized records are quarantined rather than accepted. |
 | Ingestion stops after rotation/truncation | Inspect rotation notices and persisted incidents. Restore required archives if available; unsupported gaps require an explicit new source/state. Saved evidence remains available. |
 | State is locked | Stop the other app/export/maintenance process using that state, or choose another state directory. Deleting the lock file is not a recovery procedure. |
 | Investigation cannot start | Wait for or cancel the active run. For whole scopes over 10,000 records, select an alert neighborhood. Inspect failed-run errors or budget warnings. |
 | A report does not include newer telemetry | Its snapshot is intentionally frozen. Create a successor or start a new investigation. |
-| Automatic work is not running | Connect ingestion, enable the policy and click Apply scheduling policy. After restart it is off; failed/interrupted work requires explicit requeue. |
+| Automatic work is not running | Connect ingestion, enable the automatic investigation switch in Settings. After restart it is off; failed/interrupted work requires explicit requeue. |
 | Model run fails | Check endpoint/model configuration and strict JSON Schema support; inspect the saved error. Use the default rules while compatibility is unresolved. |
 
 ## Docker Compose
@@ -687,7 +623,7 @@ docker compose logs -f bluecheese
 ```
 
 Open http://127.0.0.1:8501. Place the sensor's EVE file in `./telemetry` and connect
-`/telemetry/eve.json` in the sidebar. Files/directories must be readable/traversable
+`/telemetry/eve.json` under Settings. Files/directories must be readable/traversable
 by the container user. To mount another host directory, set
 `BLUECHEESE_TELEMETRY=/absolute/source/directory` before `docker compose up`.
 The telemetry mount is read-only; no privileged mode or host networking is used.
@@ -704,55 +640,24 @@ The standard Compose file does not pass model-provider environment variables int
 the container. Use native launch for the verified operational workflow and local
 Unix stream setup.
 
-## Synthetic presentation and offline bundles
+## Offline evaluation bundles
 
-The developer/evaluation presentation is separate from the operational console.
-It loads bundled synthetic scenarios and provides Evidence, Investigation,
-Comparison and Live tabs. It uses the deterministic provider regardless of
-operational model configuration. No sensor or model key is needed. Use a separate
-state from operational evidence. After the install above:
+The offline evaluator runs bundled fixtures separately from operational state.
+With any application using the selected state directory stopped:
 
 ```bash
-BLUECHEESE_STATE=bluecheese-data .venv/bin/python -m streamlit run src/bluecheese/interfaces/demo.py --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false
+.venv/bin/python -m bluecheese.application.export_demo --state evaluation-state --out evaluation-bundles --bundles
+.venv/bin/python -m bluecheese.application.report_bundle evaluation-bundles/suspicious-poisoned.bundle
 ```
 
-Open the printed URL. Select `suspicious / clean` in Evidence, run an investigation
-in Investigation, then run the clean/poisoned comparison in Comparison. Keep the
-default six-call/five-second budget and Falsifier enabled for the walkthrough.
-In Live, choose **Synthetic replay**, then **Start / resume ingestion**; it appends
-fixture records every 0.5 seconds and refreshes every second. **Stop ingestion**
-stops replay. Investigations use fixed snapshots while later records arrive.
-These are deterministic policy demonstrations, not model accuracy measurements.
-See [the five-minute walkthrough](docs/DEMO.md) for expected synthetic outcomes.
+This generates synthetic evaluation reports, not exports of operational cases.
+Bundles contain reports, snapshots, tool traces, referenced evidence, and hashes.
+Verification checks integrity and retrieval scope, not semantic correctness.
+Use case downloads for operational reports and backups for the whole database.
 
-Presentation state defaults to `bluecheese-data/evidence.duckdb` and replay to
-`bluecheese-data/replay/eve.jsonl`. `BLUECHEESE_STATE` and `BLUECHEESE_REPLAY` can
-select other writable paths. Presentation background/cancellation and saved
-successor controls preserve prior reports; rerendering does not start new runs.
+## CLI imports and SQLite evidence
 
-With the presentation **stopped**, export synthetic reports and bundles to a new
-directory, then verify a bundle offline:
-
-```bash
-.venv/bin/python -m bluecheese.application.export_demo --state bluecheese-data --out demo-exports-v2 --bundles
-.venv/bin/python -m bluecheese.application.report_bundle demo-exports-v2/suspicious-poisoned.bundle
-```
-
-This runs all four bundled scenario/variant combinations and writes JSON/Markdown
-reports plus immutable `.bundle` directories. **This command generates synthetic
-presentation reports; it does not export your operational cases.** Use the
-operational GUI's report downloads and the database backup commands for those.
-Existing bundle directories are never overwritten; choose a new output directory.
-
-Bundles include a report, run/snapshot manifest, tool trace, referenced exact raw,
-parsed and normalized evidence, and SHA-256 checksums. Verification checks retrieval
-visibility, occurrence identity, normalization and snapshot bounds. Hashes are not
-signatures or semantic support checks. Historical parser archives remain pending.
-The evaluator manifest in `docs/evaluator` never enters provider inputs.
-
-## Preserved CLI and legacy web UI
-
-The original PCAP/EVE import, SQLite evidence, triage and web UI remain available.
+PCAP/EVE import, SQLite evidence, triage, and report commands remain available.
 They use `bluecheese.sqlite3`, independently of the GUI's DuckDB evidence. A legacy
 import does **not** populate the operational console; connect EVE in the GUI for
 that workflow. These examples use the checkout launcher:
@@ -768,10 +673,9 @@ Copy an alert's ID from the output and replace `EVENT_ID` below:
 ./bluecheese --data-dir eve-data evidence EVENT_ID
 ./bluecheese --data-dir eve-data triage EVENT_ID
 ./bluecheese --data-dir eve-data report EVENT_ID
-./bluecheese --data-dir eve-data serve --port 8765
 ```
 
-Open http://127.0.0.1:8765 for the legacy UI. For PCAP import, install Suricata on
+For PCAP import, install Suricata on
 PATH (or use `--suricata /path/to/suricata`):
 
 ```bash
@@ -801,12 +705,15 @@ suricata -r "$PWD/bad.pcap" -c /etc/suricata/suricata.yaml -l "$PWD/telemetry/ba
 ```
 
 Select **EVE file** and connect the absolute path to
-`telemetry/bad-capture/eve.json`. Enable EVE `alert` and `flow` outputs in the
-sensor configuration. Offline `-r` processing reads packets from disk; it does
+`telemetry/bad-capture/eve.json`. Enable EVE `alert`, `flow`, `dns`, `http` and
+`tls` outputs in the sensor configuration. Offline `-r` processing reads packets from disk; it does
 not transmit them. Use a fresh output directory for each conversion. The legacy
 PCAP import stores evidence separately from the operational GUI database.
 
 ## Development checks and remaining work
+
+See [verification scope](docs/TESTING.md) for current checks. Earlier execution
+records remain in [session status](docs/SESSION_STATUS.md).
 
 Install the pinned development dependencies before running checks:
 
@@ -815,7 +722,22 @@ Install the pinned development dependencies before running checks:
 .venv/bin/python -m ruff check src tests
 .venv/bin/python -m pytest -q --cov=bluecheese --cov-report=term-missing
 .venv/bin/python -m pip check
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+npm test
+cd ..
 ```
+
+For frontend development, start the backend on its explicit development port:
+
+```bash
+.venv/bin/python -m bluecheese.interfaces.server --port 8501 --no-browser
+```
+
+In another terminal, run `npm run dev` from `frontend/`. Vite proxies `/api` to
+that backend. Run `npm run build` after changes to update the packaged interface.
 
 Allow at least 1 GB of free temporary space for tests; one fresh-user Linux run
 used about 400 MB for DuckDB files. If `/tmp` is a small tmpfs and pytest reports
@@ -828,9 +750,11 @@ TMPDIR="$HOME/bluecheese-test-tmp" .venv/bin/python -m pytest -q
 
 Tests use temporary state, offline fixtures and deterministic polling, with no
 real models/API keys. Local Suricata integration runs when available; otherwise
-it skips. Unix socket tests need permission to bind local sockets. The latest
-recorded macOS/Python 3.13 verification passed 71 tests, including local Suricata
-PCAP/stream integration and GUI interactions. Earlier native Linux/Python 3.14.7
+it skips. Unix socket tests need permission to bind local sockets. The current
+macOS/Python 3.13 verification passed 210 Python tests
+and 17 Chromium browser tests, including local Suricata PCAP/stream integration
+and the alert-to-decision journey. See the
+[analyst workflow verification](docs/ANALYST_WORKFLOW_VERIFICATION.md) for current checks and live-provider limits. The earlier [README verification record](docs/README_VERIFICATION.md) records the walkthrough scope. Earlier native Linux/Python 3.14.7
 checks are recorded in [session status](docs/SESSION_STATUS.md).
 
 For an isolated synthetic finite-backlog ingestion measurement:

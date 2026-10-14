@@ -1,61 +1,56 @@
-# Operational console UI/UX review — 2026-10-12
+# Analyst interface review — 2026-10-14
 
-Reviewed the working operational console, not the synthetic presentation app.
-The goal was to reduce scrolling, make evidence exploration understandable, and
-keep operational state and limitations visible. This is an implementation review,
-not an enterprise readiness certification or a user study.
+The application uses one React interface served by the Python runtime. Alerts,
+Cases, Network, and Settings form its navigation. The README walkthrough uses the
+same interface and source controls as operational work.
 
-## Findings and changes
+## Design
 
-| Finding | Change |
-|---|---|
-| Setup controls and repeated headings competed with analyst work. | Compact workspace heading, sidebar brand, collapsible sensor setup and consistent dark/teal theme. The CLI applies the theme even when launched outside the repository. |
-| The overview mixed charts, a large map and raw records into a long page. | Activity, Connections and Evidence tabs; bounded map viewport with fullscreen; collapsed raw details and beginner explanations. |
-| Normal wheel scrolling zoomed the timeline, sometimes producing a blank chart and fractional count scales. | Shift + wheel zooms time only. Normal scrolling leaves scales unchanged; the count axis retains its zero baseline. Instructions appear beside the chart. |
-| Connection selection narrowed evidence but left charts showing a different population. | Endpoint and directed-pair filters now apply to all overview tabs and view counters; Reset focus clears both. Stored-scope header counters remain explicitly distinguished. |
-| New flow records could bury older alerts in the first 50 visual records. | Evidence type selector; alerts appear first, newest within each type. Matching count and display limit are labelled. Full pagination remains on Alerts/Flows. |
-| Long evidence hashes and run IDs were difficult to recognize. | Rule/flow-state, endpoint-pair and short-ID labels; saved runs show status and short ID. Full identifiers remain in evidence and exports. |
-| Investigation actions were buried below raw JSON. | Actions above raw detail, direct navigation to Investigations, prominent exports, concise assessment and expandable citation/retrieval audit. Unresolved questions stay expanded. |
-| Sensor buttons could display stale enabled states after disconnect. | Immediate app refresh after connection changes; disable inappropriate actions and input edits while connected. |
-| Continuous refresh lacked a reading/editing control. | Auto refresh toggle and Refresh now. Pausing refresh preserves ingestion; filters/manual refresh still reload current data. |
-| Busy/empty queue actions could give insufficient feedback. | Pending investigations disable duplicate submission; queue actions explain when no eligible alert is available. |
-| Technical quarantine JSON was difficult to scan. | Readable table with source, byte offset and reason; full continuity incidents remain available. |
-| Detection text could be interpreted as Markdown in new summaries. | Rule text uses code widgets; report prose uses plain text. Original evidence remains in code/JSON widgets. |
+Light and dark themes share typography, spacing, control dimensions, and semantic
+colors. Graphite or white surfaces, blue actions, crisp dividers, and aligned SVG
+icons establish hierarchy. Source diagnostics and retrieval details are secondary.
+Findings distinguish observed facts, assessments, unknowns, and analyst decisions.
 
-## Verification
+Drawers use focus-managed portals. Tabs support arrow keys, Home, and End. Motion
+uses short control transitions, drawer movement, and linked chart highlighting;
+reduced-motion preferences disable animations. Background updates retain reading
+and editing state and never schedule investigations.
 
-- Native Firefox rendered review on macOS, using the existing capture-derived
-  operational evidence: 536 accepted records, 194 alerts and 342 flows. Confirmed
-  the new theme, workspace controls, scope labels, readable charts and updated
-  timeline interaction. Normal wheel input left both chart scales unchanged.
-- Streamlit AppTest checks file input, missing-path recovery, endpoint and pair
-  filtering, filter reset, evidence-type selection, learning mode, refresh pause,
-  manual refresh, direct investigation navigation, exports/citation/audit controls,
-  and socket connect/disconnect button state. These interactions retain one
-  ingestion worker and do not trigger investigations on rerender.
-- Temporary Unix-stream tests use isolated state; no synthetic test records were
-  inserted into the operational evidence database.
-- Full regression suite: **71 passed** on macOS/Python 3.13. Ruff passed.
+Text colors use relative-luminance contrast, not hex-channel distance. Primary
+text exceeds 15:1; secondary text exceeds 7:1 on its tested surfaces. Functional
+text pairs meet 4.5:1 and essential graphical indicators meet 3:1. Browser checks
+also examine rendered contrast in overlays and interactive states.
 
-## Remaining checks and release constraints
+## Rendered review and checks
 
-The desktop browser review was interrupted when the native Firefox window became
-unavailable to the automation API. Narrow-screen rendering and a final rendered
-pass through every tab remain unverified; automated widget checks do not replace
-those checks. Responsive CSS is present, but mobile usability is not certified.
+Reviewed Chromium/macOS screenshots of both queues and case findings, including
+390px layouts. Corrected narrow priority badges, offscreen table-label overflow,
+control theme transitions, textarea labeling, case-history identity, and background
+pagination resets discovered during browser testing.
 
-Keyboard focus styling, labelled controls, text legends and reduced-motion
-support are implemented. Formal WCAG contrast, screen-reader, keyboard-only and
-cross-browser testing remain necessary. Streamlit tables and charts require
-particular attention during accessibility testing.
+The browser suite exercises actual investigations, citations, raw/normalized
+views, activity, decisions, contextual chat, downloads, successors, source changes,
+light/dark persistence, tooltips, reduced motion, long labels, IPv6, and unsaved
+form state. See [verification scope](TESTING.md) for commands and coverage limits.
 
-The map is a ranked logical view of up to 12 directed IP pairs, not a physical
-network topology. It supports scrolling/fullscreen and selection through the
-connection control; nodes are not clickable. The recent-record window is bounded
-and the refresh toggle pauses the timer, not an immutable evidence snapshot.
+Visual summaries retain explicit windows and snapshot scope. They depict directed
+IP relationships, not physical topology or established device ownership. Activity
+indicates recorded execution rather than simulated progress. Human usability,
+finding quality, other browsers, and assistive technology require further review.
 
-For a multi-analyst on-prem SOC, authentication, authorization, reliable user
-attribution and multi-session concurrency validation remain release gates. The
-current Analyst field is explicitly local attribution, not an authenticated
-identity. Also complete container execution, sustained sensor/load testing and
-deployment validation before sale. See [release gates](RELEASE_GATES.md).
+
+## System-wide reading review — 2026-10-14
+
+Reviewed alerts, cases/findings, evidence drawers, network, actual activity,
+contextual chat, decisions, settings/source diagnostics, and Markdown exports.
+Corrections include a labelled case time window, one shared interpretation-help
+area, separate case gaps and material analysis limits, conditional next checks,
+shorter action labels, semantic paragraph/list rendering, readable source incidents,
+capability-check outcomes and advisory scores. Diagnostic JSON remains secondary.
+
+Rendered desktop and 390px chat screenshots show readable paragraphs and lists;
+literal markup remains text. Both themes retain contrast, keyboard, zoom and
+unsaved-decision checks. Failure views retain access to saved evidence and actual
+operations. See [workflow benchmark and evidence](ANALYST_WORKFLOW_VERIFICATION.md).
+Human task completion, time saved and enterprise deployment capabilities have not
+been established by this review.

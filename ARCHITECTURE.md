@@ -3,11 +3,19 @@
 Specification: `Blue_Cheese_Master_Implementation_Plan.md`. Deferred work and
 milestone gates are in `ROADMAP.md`; actual checks are in `docs/SESSION_STATUS.md`.
 
-The legacy CLI/PCAP/EVE/SQLite/triage/web workflow remains independent. The
-operational entry point is `src/bluecheese/interfaces/console.py` (`bluecheese gui`);
-the preserved presentation remains `src/bluecheese/interfaces/demo.py`.
+The CLI PCAP/EVE/SQLite/triage workflow remains independent. The single GUI is
+`interfaces/server.py` (`bluecheese gui`), a same-origin Starlette API serving
+compiled React assets. Source lives in `frontend/`; packaged assets live in
+`interfaces/static/`. Demonstrations follow README instructions using that GUI.
 
-Presentation runtime ownership follows `docs/adr/001-local-runtime-and-snapshots.md`.
+The server lifespan initializes one runtime with fixture loading disabled and
+closes it on shutdown. Explicit, bounded API endpoints resolve operational scope
+and case snapshots server-side. Mutations validate a signed session/CSRF token,
+JSON fields, origin, and request limits; arbitrary store commands are not exposed.
+Credentials stay in process memory. Provider calls and synchronous database
+facade calls execute off the ASGI event loop. Targeted browser polling reads
+status, activity, and chat without scheduling work. Runtime ownership follows
+`docs/adr/001-local-runtime-and-snapshots.md`.
 One database worker owns DuckDB behind a bounded queue; the runtime RLock protects
 lifecycle and follower state. The ingestion worker submits whole bounded polling
 transactions. Provider execution happens outside those locks, with one active run.
@@ -56,7 +64,7 @@ Docker execution remains blocked by the unavailable daemon.
 
 ## Operational visual and stream paths
 
-`interfaces/network_overview.py` renders bounded, scoped normalized observations
+`frontend/src/charts.tsx` renders bounded, scoped normalized observations
 from `visual_telemetry`; `application/telemetry_visuals.py` derives record counts,
 UTC bins (including zero-count gaps), protocol/severity breakdowns and directed
 IP pairs. This analyst path does not expand provider retrieval or grant citations.

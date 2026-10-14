@@ -13,3 +13,7 @@ bluecheese-data
 bluecheese-operations
 demo-exports
 telemetry
+
+frontend/node_modules
+frontend/test-results
+frontend/playwright-report

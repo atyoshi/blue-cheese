@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "provider_access": "FORBIDDEN: evaluator reference only",
+  "capture_sha256": "40743e4d6c0e3de4222b8a4e81ae54ed571ac6accb7bb19c0cd81a14caf7ef55",
+  "capture_bytes": 49668763,
+  "source_page": "https://www.malware-traffic-analysis.net/2026/09/24/index.html",
+  "incident_reference": "https://dshield.org/diary/33368",
+  "attribution": "Content corroborated by capture date, endpoints and URL patterns; original archive checksum not independently obtained",
+  "usage_terms": "Existing local capture only. Site describes security-research use but does not provide a general redistribution license. No capture or malware samples are bundled by this increment.",
+  "expected_observations": [
+    "Host 10.9.24.143 retrieves content from 45.131.215.56 using HTTP GET.",
+    "The same host sends HTTP POST requests to 95.163.153.80:8133, including /api/t and /api/credentials.",
+    "Some requests use Go-http-client/1.1. The user agent alone is not a maliciousness test."
+  ],
+  "expected_interpretation": "Evaluate the download/reporting/credential-upload pattern as malicious-activity evidence in the relevant scope; retain limitations about payload semantics and endpoint execution.",
+  "expected_unknowns": [
+    "Process identity, persistence and successful theft are not established by normalized request paths alone.",
+    "A selected endpoint-pair snapshot does not include every stage or destination in the capture.",
+    "The incident reference is evaluator context, never model input."
+  ],
+  "acceptance": "Review actual retrieved citations, affected endpoints/times, activity assessment, countertest and recommended next checks. An unsupported malicious verdict fails; an uncertain verdict that misses available behavioral evidence remains a finding-quality gap."
+}

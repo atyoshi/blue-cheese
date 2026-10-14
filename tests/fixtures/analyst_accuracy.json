@@ -1,0 +1,14 @@
+{
+  "description": "Reviewed synthetic evidence: a POST response and a separate GET protocol switch. Paths and response sizes do not identify request payload contents or establish theft.",
+  "records": [
+    {"timestamp":"2026-09-24T16:38:45-0600","event_type":"alert","sensor_name":"accuracy-sensor","flow_id":901,"src_ip":"10.9.24.143","src_port":43000,"dest_ip":"192.0.2.80","dest_port":8133,"proto":"TCP","alert":{"signature":"Review outbound agent activity","severity":2}},
+    {"timestamp":"2026-09-24T16:39:00-0600","event_type":"http","sensor_name":"accuracy-sensor","flow_id":901,"src_ip":"10.9.24.143","src_port":43000,"dest_ip":"192.0.2.80","dest_port":8133,"proto":"TCP","http":{"http_method":"POST","url":"/api/credentials","status":200,"length":45}},
+    {"timestamp":"2026-09-24T16:39:10-0600","event_type":"http","sensor_name":"accuracy-sensor","flow_id":901,"src_ip":"10.9.24.143","src_port":43000,"dest_ip":"192.0.2.80","dest_port":8133,"proto":"TCP","http":{"http_method":"GET","url":"/api/shell/agent","status":101,"length":0}},
+    {"timestamp":"2026-09-24T16:39:20-0600","event_type":"flow","sensor_name":"accuracy-sensor","flow_id":901,"src_ip":"10.9.24.143","src_port":43000,"dest_ip":"192.0.2.80","dest_port":8133,"proto":"TCP","flow":{"state":"established","bytes_toserver":18000,"bytes_toclient":450}}
+  ],
+  "expected_http": [
+    {"method":"POST","path":"/api/credentials","response_status":200,"response_length_bytes":45},
+    {"method":"GET","path":"/api/shell/agent","response_status":101,"response_length_bytes":0}
+  ],
+  "forbidden_conclusions": ["45 bytes of credentials were uploaded", "The GET endpoint returned status 200", "Endpoint compromise is confirmed", "The connection is authorized"]
+}

@@ -1,0 +1,2 @@
+# Packaged Vite output is reviewed through frontend source and build checks.
+src/bluecheese/interfaces/static/assets/* linguist-generated=true -whitespace

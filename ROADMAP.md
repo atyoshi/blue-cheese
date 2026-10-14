@@ -1,4 +1,32 @@
+# Analyst interface upgrade — 2026-10-14
+
+One React/TypeScript GUI now replaces the Streamlit console, presentation frontend,
+practice screens, and legacy web frontend. The Python server owns one operational
+runtime and serves packaged assets plus explicit scoped APIs. CLI imports, SQLite
+evidence, investigation behavior, and historical reports remain supported. Light
+and dark themes, linked evidence visuals, actual activity, contextual chat, and
+analyst decisions share one component system. Demonstrations follow README.md.
+See docs/TESTING.md and docs/UI_UX_REVIEW.md for checks and remaining validation.
+
 # Implementation roadmap
+
+## Investigation assessment increment — 2026-10-14
+
+Version-2 findings separate activity, impact, evidence limits and next checks;
+version-1 reports remain readable. DNS/HTTP/TLS context now complements unchanged
+alert/flow interpretations. Optional native decision advice persists scoped input
+references, uncalibrated scores, failures and interrupted states through migration 7.
+The local comparison runner preserves matching snapshots and keeps human semantic
+review explicit. See [assessment documentation](docs/INVESTIGATION_ASSESSMENTS.md).
+Native adapter/probe behavior is covered offline; compatible decision-model live
+validation, score calibration and broader effectiveness remain pending. The
+real-capture case study uses the existing local capture without downloads.
+Three real-capture runs completed as SUSPICIOUS with verified bundles. Source
+protocol facts are displayed separately from model prose; remaining narrative
+attribution errors and 472–648-second latency require further work before
+autonomous decisions or commercial readiness claims.
+Earlier deferred descriptions below describe the broader remaining roadmap.
+
 
 Authority: `Blue_Cheese_Master_Implementation_Plan.md`, particularly Sections 9,
 11–13, 17 and work packages in Section 24. Status describes implemented code,
@@ -53,10 +81,14 @@ Requested model-role follow-up (2026-10-12): evaluate model-assisted triage and
 case/task selection against the deterministic baseline. Current Triage,
 Correlation and Orchestrator are rules; Investigator and the model-review part
 of Falsifier use the configured LLM and typed tools. Consider native llama.cpp
-decision models for bounded classification/routing as a separate optional
-adapter (`/v1/systemone`, not Chat Completions). Measure quality, abstention and
-latency before adoption; scope, budgets, approvals and citation checks remain
-software-enforced. No new model downloads or framework are authorized by this note.
+decision models as optional advice for analysts and the investigation model
+(`/v1/systemone`, not Chat Completions). Show suggested review importance,
+uncalibrated option scores, scope, evidence references and unknowns; preserve
+insufficient evidence. Compare investigations with and without advice for analyst
+usefulness, finding quality, unsupported conclusions and anchoring. Scores alone
+must not start investigations, reorder/suppress alerts, close cases or authorize
+actions. Routing automation requires separate future evaluation; scope, budgets,
+approvals and retrieval-grounded citation checks remain software-enforced. No new model downloads or framework are authorized by this note.
 
 Current Unix stream input is local, single-producer and owner-only. It uses a
 256 MiB persistent receipt spool and stops visibly on disconnect, quota or unresolved
@@ -83,5 +115,9 @@ were introduced.
 
 Decision-model research (2026-10-13): upstream native `/v1/systemone` support was
 verified. See [DECISION_TRIAGE_RESEARCH.md](docs/DECISION_TRIAGE_RESEARCH.md) for
-sources and a transport-independent, persistence-first shadow evaluation proposal.
-No classifier integration or suppression authority is implemented.
+sources and a transport-independent, persistence-first advisory evaluation proposal.
+The Investigator must assess underlying evidence and may disagree; two models
+assessing the same records do not provide independent corroboration. Next session:
+check native decision-model availability through the existing `~/bc.json`
+configuration. Optional native advisory integration is implemented; compatible native live
+validation and routing authority remain pending.

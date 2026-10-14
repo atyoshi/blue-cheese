@@ -68,6 +68,7 @@ class EvidenceTools:
             "get_event",
             "list_alerts",
             "find_events_by_ip",
+            "find_related_events",
             "search_events",
         ):
             raise ValueError("Unknown typed tool")
@@ -218,7 +219,7 @@ class Falsifier:
         # This independent query is executable and can reveal a failed connection
         # that the Investigator's initial alert retrieval never observed.
         rows = tools.call(
-            "find_events_by_ip", ip=alert["normalized"]["src_ip"], limit=100
+            "find_related_events", seed_id=alert["id"], event_types=["flow"], limit=100
         )
         member_ids = getattr(tools, "correlated_ids", None)
         relevant = [
@@ -265,9 +266,7 @@ class DemoInvestigator:
             "contradicting_ids": [],
             "claims": [],
             "disconfirmation_test": "Find the alerted flow closing with zero bytes in both directions.",
-            "unresolved": [
-                "Intent and endpoint activity are not available in network logs."
-            ],
+            "unresolved": [],
             "falsifier": {
                 "status": "disabled",
                 "checked": "Falsification disabled",
@@ -289,7 +288,9 @@ class DemoInvestigator:
             "The alerted connection may be command and control traffic."
         )
         result["supporting_ids"] = [alert["id"]]
-        flows = tools.call("search_events", event_type="flow", limit=100)
+        flows = tools.call(
+            "find_related_events", seed_id=alert["id"], event_types=["flow"], limit=100
+        )
         member_ids = getattr(tools, "correlated_ids", None)
         relevant = [
             r
@@ -300,9 +301,9 @@ class DemoInvestigator:
         result["supporting_ids"] += active
         if active:
             result["verdict"] = "SUSPICIOUS"
-        else:
+        elif relevant and not any(failed_flow(row) for row in relevant):
             result["unresolved"].append(
-                "No established high-volume alerted flow observed."
+                f"The delivered flow records do not explain the sensor match on {alert['normalized'].get('src_ip')} → {alert['normalized'].get('dest_ip')}."
             )
         if falsification:
             tools.emit(
@@ -319,22 +320,22 @@ class DemoInvestigator:
                 result["verdict"] = "UNCERTAIN" if active else "BENIGN_CONFOUNDER"
                 if active:
                     result["unresolved"].append(
-                        "Conflicting flow counters require independent validation."
+                        "Both active and zero-byte closed records were delivered for the selected connection; their updates need reconciliation."
                     )
             if check["status"] == "not available":
                 result["unresolved"].append(
-                    "Flow evidence needed to test the alternative explanation is unavailable."
+                    f"The outcome of {alert['normalized'].get('src_ip')} → {alert['normalized'].get('dest_ip')} could not be checked: no matching flow was delivered."
                 )
         result["claims"] = [
             {
-                "text": "A sensor alert flags this connection; this is not proof of compromise.",
+                "text": f"The sensor matched {alert['normalized'].get('alert_signature') or 'an alert rule'} on {alert['normalized'].get('src_ip')} → {alert['normalized'].get('dest_ip')}.",
                 "citations": [alert["id"]],
             }
         ]
         if active:
             result["claims"].append(
                 {
-                    "text": "Related established flows report at least 10,000 outbound bytes.",
+                    "text": "Related established flows report at least 10,000 client-to-server bytes.",
                     "citations": active,
                 }
             )
@@ -396,6 +397,12 @@ def validate_report(report, tools):
     for correlation in report.get("correlation", []):
         ids += correlation["member_ids"]
     tools.validate(ids)
+    from bluecheese.agents.findings import validate_findings
+
+    validate_findings(report, tools)
+    tools.validate(
+        [item["evidence_id"] for item in report.get("protocol_observations", [])]
+    )
     try:
         json.dumps(report, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -418,6 +425,7 @@ def investigate(
     question="What does the observed alert and related flow evidence support?",
     synthetic=True,
     activity_callback=None,
+    decision_provider=None,
 ):
     if provider is None:
         provider = DemoInvestigator()
@@ -446,6 +454,7 @@ def investigate(
     run_status = "COMPLETED"
     tools.requested_seed_id = seed_event_id
     tools.question = question
+    tools.decision_provider = decision_provider
     try:
         tools.check_cancelled()
         report = Orchestrator().investigate(tools, provider, falsification)
@@ -474,8 +483,13 @@ def investigate(
             },
         }
     report.update(getattr(tools, "role_activity", {}))
+    if hasattr(tools, "decision_advice"):
+        report["decision_advice"] = tools.decision_advice
     if hasattr(tools, "provider_activity"):
         report["provider_activity"] = tools.provider_activity
+    from bluecheese.agents.findings import protocol_observations
+
+    report["protocol_observations"] = protocol_observations(tools.retrieved.values())
     if (
         not synthetic
         and type(provider) is DemoInvestigator
@@ -483,7 +497,7 @@ def investigate(
         and report.get("supporting_ids")
     ):
         report["hypothesis"] = (
-            "The alerted network activity warrants analyst review; network evidence alone cannot establish its purpose."
+            f"The selected sensor match on {tools.retrieved[tools.selected_seed_id]['normalized'].get('src_ip')} → {tools.retrieved[tools.selected_seed_id]['normalized'].get('dest_ip')} warrants checking the connection's purpose."
         )
         if report["verdict"] == "BENIGN_CONFOUNDER":
             report["verdict"] = "UNCERTAIN"
@@ -499,6 +513,10 @@ def investigate(
         "working",
         "Validating report structure and checking citations against retrieved evidence.",
     )
+    if type(provider) is DemoInvestigator and run_status == "COMPLETED":
+        from bluecheese.agents.findings import rule_findings
+
+        report["findings"] = rule_findings(report, tools)
     validate_report(report, tools)
     for index, claim in enumerate(report["claims"], 1):
         claim.setdefault("claim_id", f"claim-{index}")
@@ -508,7 +526,11 @@ def investigate(
         )
         claim.setdefault(
             "support_status",
-            "SUPPORTED" if type(provider) is DemoInvestigator else "UNASSESSED",
+            "SUPPORTED"
+            if type(provider) is DemoInvestigator
+            else "MODEL_ASSESSED"
+            if "findings" in report
+            else "UNASSESSED",
         )
         claim.setdefault(
             "limitations",
@@ -531,11 +553,21 @@ def investigate(
         },
         falsification_enabled=falsification,
         run_status=run_status,
-        report_version=1,
+        report_version=2 if "findings" in report else 1,
         validation_state="MECHANICALLY_VALIDATED",
         qualifiers={
             "intent": "UNDETERMINED",
-            "endpoint_compromise": "UNAVAILABLE",
+            "activity_assessment": report.get("findings", {}).get(
+                "activity_assessment", "UNDETERMINED"
+            ),
+            "endpoint_compromise": {
+                "COMPROMISE_SUPPORTED": "SUPPORTED",
+                "NETWORK_ACTIVITY_OBSERVED": "UNCONFIRMED",
+                "UNCONFIRMED": "UNCONFIRMED",
+            }.get(
+                report.get("findings", {}).get("observed_impact", {}).get("status"),
+                "UNAVAILABLE",
+            ),
             "confidence": "uncalibrated deterministic policy"
             if type(provider) is DemoInvestigator
             else "uncalibrated",

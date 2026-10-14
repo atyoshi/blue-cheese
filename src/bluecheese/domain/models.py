@@ -1,4 +1,21 @@
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+
+def model_observation(row):
+    """Clarify protocol semantics without changing immutable stored interpretations."""
+    normalized = deepcopy(row["normalized"])
+    try:
+        timestamp = datetime.fromisoformat(normalized["timestamp"])
+        if timestamp.tzinfo is not None:
+            normalized["timestamp_utc"] = timestamp.astimezone(UTC).isoformat()
+    except (KeyError, TypeError, ValueError):
+        pass
+    details = normalized.get("protocol_details", {})
+    if normalized.get("event_type") == "http" and "length" in details:
+        details["response_length_bytes"] = details.pop("length")
+    return {"id": row["id"], "normalized": normalized}
 
 
 @dataclass(frozen=True)
@@ -19,6 +36,11 @@ class NormalizedAlert:
     bytes_toserver: int | None = None
     bytes_toclient: int | None = None
     flow_state: str | None = None
+
+
+@dataclass(frozen=True)
+class NormalizedNetworkContext(NormalizedAlert):
+    protocol_details: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

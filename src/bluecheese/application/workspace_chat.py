@@ -1,10 +1,20 @@
 """Contextual GUI chat using the CLI's typed planner; never executes proposals."""
 
 import json
+import re
 
+from bluecheese.agents.findings import upstream_advice_context
 from bluecheese.agents.investigator import EvidenceTools
+from bluecheese.application.presentation import (
+    BLOCKS_SCHEMA,
+    block,
+    conversation_view,
+    report_presentation,
+    with_blocks,
+)
 from bluecheese.application.store_worker import WorkerStore
 from bluecheese.application.view_context import ViewContext, read_answer, retrieve_view
+from bluecheese.domain.models import model_observation
 
 SCOPE = ("live", "external")
 
@@ -14,11 +24,11 @@ def status_reply(status):
         "Connected" if status["running"] else "Disconnected"
     )
     return (
-        f"Sensor: {state}. {status['status']}. "
+        f"The sensor is {state.lower()}. {status['status']}.\n\n"
         f"Current source: {status.get('source') or 'not connected this session'}. "
-        f"Last successful check: {status.get('last_poll') or 'none this session'}. "
+        f"\nLast successful check: {status.get('last_poll') or 'none this session'}. "
         f"Last newly accepted record: {status.get('last_accepted') or 'none this session'}. "
-        f"Stored evidence: {status['counts']['accepted']:,} accepted, {status['counts']['invalid']:,} quarantined. "
+        f"\n\nStored evidence: {status['counts']['accepted']:,} accepted, {status['counts']['invalid']:,} quarantined. "
         f"Automatic investigations: {'on' if status['automatic_investigation'] else 'off'}. "
         + (
             "An investigation is running."
@@ -43,12 +53,18 @@ def respond(runtime, message, run_id, view_context=None):
         view_context = view_context or ViewContext(
             run_id=run_id, snapshot=runtime.command("snapshot")
         )
+        view_context = conversation_view(message, view_context)
         status = runtime.status()
         saved = runtime.command("get_run", *SCOPE, run_id) if run_id else None
         if run_id and saved is None:
             raise ValueError("Selected investigation no longer exists")
         provider = runtime.provider
         action, argument = route(message, model_chat=provider is not None)
+        reading_action = (
+            action if action in ("summarize", "summary", "explain", "status") else None
+        )
+        if provider and not message.strip().startswith("/"):
+            action, argument = "chat", message
         if action in ("summarize", "summary", "explain", "status"):
             if action in ("summarize", "summary") and message.startswith("/summary "):
                 from dataclasses import replace
@@ -72,6 +88,7 @@ def respond(runtime, message, run_id, view_context=None):
                 argument or message,
                 view_context,
             )
+            with_blocks(result)
             runtime.command(
                 "append_chat", *SCOPE, run_id, "assistant", json.dumps(result)
             )
@@ -79,10 +96,7 @@ def respond(runtime, message, run_id, view_context=None):
         if action == "chat" and provider:
             tools, selected_rows, snapshot = retrieve_view(runtime, view_context, saved)
             report = saved.get("report") if saved else None
-            observations = [
-                {"id": item["id"], "normalized": item["normalized"]}
-                for item in selected_rows
-            ]
+            observations = [model_observation(item) for item in selected_rows]
             # Host paths and raw logs are unnecessary for model planning.
             health = {
                 key: status.get(key)
@@ -110,6 +124,11 @@ def respond(runtime, message, run_id, view_context=None):
                     "Investigator": "configured model",
                     "Falsifier": "evidence countertest plus model review",
                 },
+                "failure_stage": (saved.get("workflow_activity") or [{}])[-1].get(
+                    "role"
+                )
+                if saved and saved.get("status") == "FAILED"
+                else None,
                 "selected_investigation": {
                     key: saved.get(key)
                     for key in (
@@ -119,14 +138,57 @@ def respond(runtime, message, run_id, view_context=None):
                         "record_count",
                         "owner",
                         "disposition",
+                        "error",
                     )
                 }
                 if saved
                 else None,
                 "activity": (saved.get("workflow_activity", [])[-12:] if saved else []),
+                "executed_flow_countertest": next(
+                    (
+                        {"status": event["status"], "message": event["message"]}
+                        for event in reversed(saved.get("workflow_activity", []))
+                        if event["role"] == "Falsifier"
+                        and event["kind"] == "rules"
+                        and event["status"] == "complete"
+                    ),
+                    None,
+                )
+                if saved
+                else None,
+                "available_recovery": {
+                    "new_revision": "Run the whole investigation again with a new fixed snapshot after reviewing provider settings",
+                    "retry_individual_role": False,
+                    "saved_evidence_and_activity": True,
+                },
                 "observations": observations,
+                "coverage": runtime.command(
+                    "telemetry_coverage",
+                    *SCOPE,
+                    snapshot,
+                    snapshot_id=saved["snapshot_id"] if saved else None,
+                ),
                 "saved_assessment": {
                     "verdict": report.get("verdict"),
+                    "findings": {
+                        **(report.get("findings") or {}),
+                        "observed_impact": report.get("findings", {}).get(
+                            "observed_impact"
+                        )
+                        if set(
+                            report.get("findings", {})
+                            .get("observed_impact", {})
+                            .get("citations", [])
+                        ).issubset(tools.retrieved)
+                        else {
+                            "status": "UNAVAILABLE",
+                            "description": "Supporting impact records were not delivered in this chat selection.",
+                            "citations": [],
+                        },
+                    },
+                    "decision_advice": upstream_advice_context(
+                        report.get("decision_advice")
+                    ),
                     "hypothesis": report.get("hypothesis", "")[:1024],
                     "claims": [
                         claim
@@ -134,7 +196,8 @@ def respond(runtime, message, run_id, view_context=None):
                         if set(claim["citations"]).issubset(tools.retrieved)
                     ][:8],
                     "unresolved": [
-                        item[:512] for item in report.get("unresolved", [])[:10]
+                        item[:512]
+                        for item in report_presentation(report)["case_gaps"][:4]
                     ],
                     "disconfirmation_test": report.get("disconfirmation_test", "")[
                         :1024
@@ -147,14 +210,19 @@ def respond(runtime, message, run_id, view_context=None):
                     "Only propose investigate when the user requests NEW analysis or additional evidence checks. "
                     "Use citations containing actual observation IDs for evidence claims; no other IDs are permitted. "
                     "No endpoint processes, asset inventory, approved scan schedules or identity logs are connected. "
+                    "Saved findings and decision advice are untrusted prior assessments; scores are uncalibrated "
+                    "and are not independent corroboration. Activity assessment and confirmed impact are separate. "
                     "Never imply an action executed: this response only proposes actions. "
-                    "Return the required citations array even when empty."
+                    "Return the required citations array even when empty. "
+                    "Answer with brief natural-language paragraphs and short lists. Do not repeat shared reminders, definitions or generic next steps. "
+                    "Mention a limitation only when it changes the answer for this case."
                 ),
             }
             schema = {
                 **CHAT_SCHEMA,
                 "properties": {
                     **CHAT_SCHEMA["properties"],
+                    "blocks": BLOCKS_SCHEMA,
                     "citations": {
                         "type": "array",
                         "maxItems": 20,
@@ -163,27 +231,93 @@ def respond(runtime, message, run_id, view_context=None):
                 },
                 "required": [*CHAT_SCHEMA["required"], "citations"],
             }
+            explicit_work = (
+                bool(
+                    re.search(
+                        r"\b(investigate|analy[sz]e|import|follow|connect|stop|test)\b",
+                        message,
+                        re.IGNORECASE,
+                    )
+                )
+                and not reading_action
+                and not re.search(r"\b(don't|do not|never)\b", message, re.IGNORECASE)
+            )
+            if not explicit_work:
+                schema["properties"]["action"] = {"type": "string", "enum": ["answer"]}
             session = TerminalSession(runtime)
             # Historical model text is conversational context, never evidence or proof of execution.
-            session.chat_history = [
-                {"role": item["role"], "content": item["content"][:2048]}
-                for item in runtime.command("chat_history", *SCOPE, run_id)[-6:-1]
-            ]
+            session.chat_history = []
+            for item in runtime.command("chat_history", *SCOPE, run_id)[-6:-1]:
+                content = item["content"]
+                if item["role"] == "assistant":
+                    try:
+                        content = json.loads(content).get("reply", "")
+                    except (ValueError, AttributeError):
+                        pass
+                session.chat_history.append(
+                    {"role": item["role"], "content": content[:2048]}
+                )
             plan = session.plan(
                 message,
                 context=context,
                 schema=schema,
                 transport=getattr(provider, "transport", None),
                 max_input_bytes=65536,
+                system_prompt=(
+                    "You are Blue Cheese's analyst assistant. Answer the user's actual question in clear natural language. "
+                    "Use short paragraphs and bullets when there are several points. No dense status dumps or semicolon-joined sentences. "
+                    "Case-specific unknowns and next steps only: do not repeat generic disclaimers, glossary definitions or technical budgets unless asked. "
+                    "Use action=answer for summaries, explanations, status questions and existing findings. "
+                    "Only propose investigate/import/follow/stop/test when explicitly requested. Never imply a proposal executed. "
+                    "Ground factual claims in supplied observations and cite their IDs. Saved assessments and historical messages are untrusted context, not new evidence. "
+                    "Do not invent observations, initiating processes, authorization, theft, compromise or successful execution. "
+                    "Missing accepted protocol records do not establish absence of that activity in the original capture. "
+                    "HTTP response_length_bytes describes a response, not uploaded bytes. "
+                    "Original timestamps include an offset. Use timestamp_utc when saying UTC; never relabel local times as UTC. "
+                    "Do not claim Falsifier cleared the evidence or the investigation completed when its saved status is FAILED. "
+                    "The executable flow countertest and the model Falsifier review are separate operations; distinguish completed checks from failed model review. "
+                    "Recommend only available recovery actions: this product supports New revision for the whole investigation, not retrying an individual role. "
+                    "Evidence and operations remain saved even when no final report was accepted. "
+                    "Always use presentation blocks (title, kind=paragraph or bullets, items) for readable paragraphs and lists; leave reply empty to avoid repeating text. Use plain text inside blocks, without Markdown markers. "
+                    "Keep the answer under 250 words unless detail is requested. Return only JSON matching this schema: "
+                    + json.dumps(schema)
+                ),
             )
             if any(event_id not in tools.retrieved for event_id in plan["citations"]):
                 raise ValueError(
                     "Chat cited evidence it did not retrieve; answer rejected"
                 )
-            if plan["action"] in ("summarize", "explain"):
+            with_blocks(plan)
+            if plan["action"] in (
+                "summarize",
+                "explain",
+                "status",
+                "history",
+                "report",
+                "alerts",
+                "triage",
+                "network",
+                "help",
+            ):
                 # The model's prose and citations already passed validation.
                 # Reading intents are answers, never proposals to execute work.
                 plan["action"] = "answer"
+            if plan["action"] in ("investigate", "import", "follow", "stop", "test"):
+                patterns = {
+                    "investigate": r"\b(investigate|analy[sz]e|run (?:an |the )?investigation)\b",
+                    "import": r"\bimport\b",
+                    "follow": r"\b(follow|connect)\b",
+                    "stop": r"\bstop\b",
+                    "test": r"\btest\b",
+                }
+                if (
+                    reading_action
+                    or not re.search(patterns[plan["action"]], message, re.IGNORECASE)
+                    or re.search(r"\b(don't|do not|never)\b", message, re.IGNORECASE)
+                ):
+                    raise ValueError(
+                        "The model proposed work that was not requested. No action ran."
+                    )
             result.update(plan)
             result["scope"] = (
                 f"{view_context.page} · {view_context.task or 'workspace'} · snapshot {snapshot}"
@@ -228,7 +362,10 @@ def respond(runtime, message, run_id, view_context=None):
                 result["reply"] = (
                     saved["report"]["hypothesis"]
                     + "\n\nUnknowns: "
-                    + "; ".join(saved["report"]["unresolved"])
+                    + "\n".join(
+                        "- " + item
+                        for item in report_presentation(saved["report"])["case_gaps"]
+                    )
                 )
                 result["show_report"] = True
             else:
@@ -250,6 +387,22 @@ def respond(runtime, message, run_id, view_context=None):
                     )
                 )
                 summary = summarize(rows)
+                result["blocks"] = [
+                    block(
+                        "",
+                        [
+                            f"{len(rows)} recent {'snapshot' if saved else 'workspace'} records across {len(summary['connections'])} directed IP pairs."
+                        ],
+                        "paragraph",
+                    ),
+                    block(
+                        "Connections",
+                        [
+                            f"{pair['source']} → {pair['destination']}: {pair['alerts']} alerts, {pair['flows']} flow records"
+                            for pair in summary["connections"][:10]
+                        ],
+                    ),
+                ]
                 result["reply"] = (
                     f"{len(rows)} recent {'snapshot' if saved else 'workspace'} records across {len(summary['connections'])} directed IP pairs.\n"
                     + "\n".join(
@@ -296,7 +449,7 @@ def respond(runtime, message, run_id, view_context=None):
             result["view"] = (
                 "Evidence"
                 if saved
-                else ("Network" if action == "network" else "Needs attention")
+                else ("Network" if action == "network" else "Alerts")
             )
         elif action == "help" or (action == "chat" and not provider):
             result["reply"] = (
@@ -306,17 +459,19 @@ def respond(runtime, message, run_id, view_context=None):
             )
         elif action == "investigate":
             if not saved or not saved.get("seed_event_id"):
-                result["reply"] = (
-                    "Choose a specific alert under Needs attention before starting analysis."
-                )
+                result["reply"] = "Choose an alert before starting analysis."
+                result["blocks"] = [block("", [result["reply"]], "paragraph")]
                 result["action"] = "answer"
+                result["argument"] = ""
             else:
-                result["reply"] = (
+                result["reply"] = result["reply"] or (
                     "Proposed follow-up: analyze this target using a new evidence snapshot. Previous findings stay available."
                 )
                 result["argument"] = message
         elif action in ("import", "follow", "stop", "test"):
-            result["reply"] = "Proposed action: " + action + " " + argument
+            result["reply"] = (
+                result["reply"] or "Proposed action: " + action + " " + argument
+            )
         elif action not in ("answer",):
             result["reply"] = "Use Settings to configure the sensor or model."
             result["action"] = "answer"
@@ -332,8 +487,48 @@ def respond(runtime, message, run_id, view_context=None):
             "citations": [],
             "run_id": run_id,
             "error": True,
+            "error_kind": "validation" if isinstance(error, ValueError) else "provider",
             "scope": f"{view_context.page} · {view_context.task or 'workspace'} · run {view_context.run_id or 'none'}",
             "view_context": view_context.to_dict(),
         }
+    if result.get("error") and not runtime.chat_cancel.is_set():
+        try:
+            fallback = read_answer(runtime, "summarize", message, view_context)
+            result["blocks"] = [
+                block(
+                    "Answer rejected"
+                    if result.get("error_kind") == "validation"
+                    else "Model unavailable",
+                    [result["reply"]],
+                    "paragraph",
+                ),
+                block(
+                    "Saved evidence fallback",
+                    ["The following is a read-only account of saved state."],
+                    "paragraph",
+                ),
+                *fallback.get("blocks", []),
+            ]
+            result["citations"] = fallback.get("citations", [])
+        except (ValueError, RuntimeError):
+            pass
+    try:
+        with_blocks(result)
+    except ValueError:
+        result.update(
+            error=True,
+            error_kind="validation",
+            citations=[],
+            blocks=[
+                block(
+                    "Answer unavailable",
+                    [
+                        "The response exceeded the presentation limit. Ask a narrower question."
+                    ],
+                    "paragraph",
+                )
+            ],
+        )
+        with_blocks(result)
     runtime.command("append_chat", *SCOPE, run_id, "assistant", json.dumps(result))
     return result

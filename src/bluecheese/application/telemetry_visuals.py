@@ -1,6 +1,5 @@
-"""Pure, bounded visual summaries of accepted alert/flow records."""
+"""Pure, bounded visual summaries of accepted telemetry records."""
 
-import json
 import math
 from collections import Counter
 from datetime import UTC, datetime
@@ -31,7 +30,10 @@ def summarize(rows):
             },
         )
         pair["records"] += 1
-        pair["alerts" if kind == "alert" else "flows"] += 1
+        if kind == "alert":
+            pair["alerts"] += 1
+        elif kind == "flow":
+            pair["flows"] += 1
         try:
             moment = datetime.fromisoformat(row["timestamp"])
             if moment.tzinfo is None:
@@ -47,7 +49,11 @@ def summarize(rows):
         start, end = math.floor(first / width) * width, math.floor(last / width) * width
         bins = Counter((math.floor(t / width) * width, kind) for t, kind in timed)
         for stamp in range(int(start), int(end) + 1, width):
-            for kind in ("alert", "flow"):
+            for kind in (
+                "alert",
+                "flow",
+                *sorted({k for _, k in timed} - {"alert", "flow"}),
+            ):
                 timeline.append(
                     {
                         "time": datetime.fromtimestamp(stamp, UTC).isoformat(),
@@ -72,41 +78,6 @@ def summarize(rows):
             key=lambda p: (-p["alerts"], -p["records"], p["source"], p["destination"]),
         ),
     }
-
-
-def connection_graph(connections, selected=None):
-    """Graphviz with quoted labels and generated IDs; telemetry cannot inject DOT."""
-    lines = [
-        "digraph traffic {",
-        "rankdir=LR;",
-        'bgcolor="transparent";',
-        'node [shape=box, style="rounded,filled", fillcolor="#eaf2fa", fontcolor="#152c45", color="#7893ab", fontname="sans-serif"];',
-        'edge [fontname="sans-serif", fontsize=11];',
-    ]
-    sources, destinations = {}, {}
-    for pair in connections[:12]:
-        for address, nodes, prefix in (
-            (pair["source"], sources, "s"),
-            (pair["destination"], destinations, "d"),
-        ):
-            if address not in nodes:
-                node = prefix + str(len(nodes))
-                nodes[address] = node
-                lines.append(
-                    f"{node} [label={json.dumps(address, ensure_ascii=False)}];"
-                )
-        alert_word = "alert" if pair["alerts"] == 1 else "alerts"
-        flow_word = "flow" if pair["flows"] == 1 else "flows"
-        label = f"{pair['alerts']} {alert_word} · {pair['flows']} {flow_word}"
-        color = "#d15b38" if pair["alerts"] else "#367eb3"
-        width = 1 + min(4, math.log2(pair["records"] + 1))
-        if selected and (pair["source"], pair["destination"]) == tuple(selected):
-            color, width = "#e59b30", 5
-        lines.append(
-            f'{sources[pair["source"]]} -> {destinations[pair["destination"]]} [label={json.dumps(label, ensure_ascii=False)}, color="{color}", fontcolor="{color}", penwidth={width:.1f}];'
-        )
-    lines.append("}")
-    return "\n".join(lines)
 
 
 def rank_endpoints(rows):

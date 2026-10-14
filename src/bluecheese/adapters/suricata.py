@@ -47,15 +47,18 @@ if __name__ == "__main__":
 
 
 def normalize_suricata_event(record: dict) -> NormalizedAlert:
-    """Reuse the canonical alert fields for alert/flow evidence."""
-    from dataclasses import replace
+    """Preserve alert/flow v1 interpretations; add bounded protocol context."""
+    from dataclasses import asdict, replace
     from datetime import datetime
 
     if not isinstance(record, dict) or record.get("event_type") not in (
         "alert",
         "flow",
+        "dns",
+        "http",
+        "tls",
     ):
-        raise ValueError("Expected Suricata alert or flow")
+        raise ValueError("Expected Suricata alert, flow, dns, http or tls")
     timestamp = record["timestamp"]
     if not isinstance(timestamp, str):
         raise TypeError("Timestamp must be a string")
@@ -64,7 +67,7 @@ def normalize_suricata_event(record: dict) -> NormalizedAlert:
         raise ValueError("Alert must be an object")
     if record.get("flow") is not None and not isinstance(record["flow"], dict):
         raise ValueError("Flow must be an object")
-    return replace(
+    normalized = replace(
         normalize_suricata_alert(record),
         event_type=record["event_type"],
         alert_signature=record.get("alert", {}).get("signature", ""),
@@ -72,3 +75,46 @@ def normalize_suricata_event(record: dict) -> NormalizedAlert:
         bytes_toclient=record.get("flow", {}).get("bytes_toclient"),
         flow_state=record.get("flow", {}).get("state"),
     )
+    kind = record["event_type"]
+    if kind in ("alert", "flow"):
+        return normalized
+    from bluecheese.domain.models import NormalizedNetworkContext
+
+    section = record.get(kind, {})
+    if not isinstance(section, dict):
+        raise TypeError("Protocol context must be an object")
+    fields = {
+        "dns": ("type", "rrname", "rrtype", "rcode", "rdata"),
+        "http": (
+            "hostname",
+            "url",
+            "http_method",
+            "status",
+            "http_user_agent",
+            "length",
+        ),
+        "tls": ("sni", "version", "subject", "issuerdn", "fingerprint"),
+    }[kind]
+    details = {}
+    for key in fields:
+        value = section.get(key)
+        if isinstance(value, str):
+            details[key] = value[:2048]
+            if len(value) > 2048:
+                details[key + "_truncated"] = True
+        elif type(value) is int:
+            details[key] = value
+    # DNS v3 may place query names in a bounded queries array.
+    if kind == "dns" and isinstance(section.get("queries"), list):
+        details["queries"] = [
+            {
+                key: str(query[key])[:2048]
+                for key in ("rrname", "rrtype")
+                if key in query
+            }
+            for query in section["queries"][:20]
+            if isinstance(query, dict)
+        ]
+        if len(section["queries"]) > 20:
+            details["queries_truncated"] = True
+    return NormalizedNetworkContext(**asdict(normalized), protocol_details=details)

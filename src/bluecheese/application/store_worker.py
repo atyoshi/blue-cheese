@@ -77,6 +77,8 @@ class WorkerStore:
             "get_event",
             "list_alerts",
             "find_events_by_ip",
+            "find_related_events",
+            "telemetry_coverage",
             "search_events",
         }
     )
@@ -103,3 +105,11 @@ class WorkerStore:
     def audit_tool(self, activity):
         if self.run_id:
             self.worker.call("record_tool", self.run_id, activity)
+
+    def save_decision_advice(self, advice):
+        if self.run_id:
+            self.worker.call("save_decision_advice", self.run_id, advice)
+
+    def audit_provider(self, activity):
+        if self.run_id:
+            self.worker.call("record_provider", self.run_id, activity)

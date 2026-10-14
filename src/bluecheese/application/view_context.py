@@ -12,7 +12,7 @@ DEFINITIONS = {
     "alert": "An alert is a sensor rule match in network traffic. It asks for review; it does not prove compromise.",
     "flow": "A flow is a record of a network conversation between endpoints, usually including addresses, ports, protocol, timing and byte counts. It is not a packet capture or a process identity.",
     "endpoint": "An endpoint is one side of a network conversation, shown here by its IP address. An IP alone does not establish the device owner or user.",
-    "quarantine": "Quarantine holds input records that could not be accepted as supported alert or flow evidence, including malformed and unsupported records. It does not isolate a device.",
+    "quarantine": "Quarantine holds malformed or unsupported input records. Supported evidence includes alerts, flows, DNS, HTTP and TLS. It does not isolate a device.",
     "snapshot": "A snapshot freezes the evidence membership and interpretations used by an investigation. Later arrivals do not change its findings.",
     "severity": "Severity is the sensor rule's review priority: 1 is high, 2 medium and 3 low. It is not a probability of compromise.",
     "budget": "An investigation budget limits evidence queries and elapsed time. Time limits and cancellation are cooperative: an active model request must return before work stops.",
@@ -218,10 +218,25 @@ def retrieve_view(runtime, view, saved, *, max_calls=6):
     ):
         report = saved["report"]
         ids = list(
-            dict.fromkeys(report["supporting_ids"] + report["contradicting_ids"])
+            dict.fromkeys(
+                report["supporting_ids"]
+                + report["contradicting_ids"]
+                + [i for c in report.get("claims", []) for i in c["citations"]]
+                + report.get("findings", {})
+                .get("observed_impact", {})
+                .get("citations", [])
+            )
         )[:max_calls]
         for event_id in ids:
             tools.call("get_event", event_id=event_id)
+    elif saved and saved.get("seed_event_id"):
+        tools.call("get_event", event_id=saved["seed_event_id"])
+        tools.call(
+            "find_related_events",
+            seed_id=saved["seed_event_id"],
+            event_types=["flow", "http", "dns", "tls", "alert"],
+            limit=limit,
+        )
     else:
         tools.call("list_alerts", limit=limit)
     rows = list(tools.retrieved.values())
@@ -241,7 +256,9 @@ def retrieve_view(runtime, view, saved, *, max_calls=6):
 
 def read_answer(runtime, intent, message, view):
     """Offline prose about observed state; never creates or schedules a run."""
-    view = resolve_view(message, view)
+    from bluecheese.application.presentation import conversation_view
+
+    view = conversation_view(message, resolve_view(message, view))
     saved = runtime.command("get_run", *SCOPE, view.run_id) if view.run_id else None
     if view.run_id and saved is None:
         raise ValueError("Selected investigation is unavailable; choose another scope")
@@ -323,49 +340,71 @@ def read_answer(runtime, intent, message, view):
         "Agent activity": "This view records executed software, rule, model and retrieval operations. A model wait means a request is in flight; it does not mean findings have been produced.",
         "Analyst decision": "This form records your attribution, assignment, disposition and notes separately from machine findings. Saving a decision preserves the evidence and report.",
     }
-    lines = [
-        f"Observed sample: {len(alerts)} alert(s), {len(flows)} flow record(s), {len(rows)} delivered record(s)."
-    ]
+    from bluecheese.application.presentation import (
+        block,
+        report_presentation,
+        with_blocks,
+    )
+
+    blocks = []
     if intent == "explain":
-        lines.insert(
-            0,
-            view_explanations.get(
-                view.task,
-                "This view shows bounded sensor evidence. Alerts are rule matches; flows describe network conversations. Reading it does not launch analysis.",
-            ),
-        )
-    for row, evidence in zip(normalized[:4], rows[:4], strict=True):
-        lines.append(
-            f"{str(row.get('alert_signature') or row.get('flow_state') or row.get('event_type'))[:160]} · {str(row.get('src_ip') or '?')[:64]} → {str(row.get('dest_ip') or '?')[:64]} · {str(row.get('timestamp') or 'time unavailable')[:64]} [{evidence['id']}]."
-        )
-    if not rows:
-        lines.append(
-            "No matching records were delivered in this bounded selection; that does not establish absence of activity."
-        )
+        explanation = view_explanations.get(view.task)
+        if explanation:
+            blocks.append(block("", [explanation], "paragraph"))
     if saved:
         report = saved.get("report") or {}
-        lines.append(
-            f"Execution: {saved['status'].lower()}. Assessment: {report.get('verdict', 'unavailable')}."
+        summary = f"The investigation of {saved.get('title') or saved['question']} is {saved['status'].lower()}."
+        if report.get("hypothesis"):
+            summary += " " + report["hypothesis"][:1024]
+        elif saved.get("error"):
+            summary += " Analysis failed: " + saved["error"][:512]
+        else:
+            summary += " No final assessment has been recorded."
+        blocks.append(block("", [summary], "paragraph"))
+        presentation = report_presentation(report)
+        if presentation["case_gaps"]:
+            blocks.append(block("Open questions", presentation["case_gaps"][:4]))
+        checks = report.get("findings", {}).get("recommended_checks", [])
+        if checks:
+            blocks.append(block("Next checks", [c["action"] for c in checks[:3]]))
+        if presentation["run_limitations"]:
+            blocks.append(block("Analysis limits", presentation["run_limitations"][:3]))
+    if rows:
+        if not saved or not saved.get("report"):
+            result["citations"] = [row["id"] for row in rows[:4]]
+        blocks.append(
+            block(
+                "Evidence reviewed",
+                [
+                    f"{r.get('alert_signature') or r.get('flow_state') or r.get('event_type')} from {r.get('src_ip') or '?'} to {r.get('dest_ip') or '?'} at {r.get('timestamp') or 'an unavailable time'}."
+                    for r in normalized[:4]
+                ],
+            )
         )
-        if report.get("hypothesis") and not (
-            view.connection or view.endpoint or view.evidence_id or view.event_type
-        ):
-            lines.append("Saved assessment: " + report["hypothesis"][:1024])
-        unknowns = report.get("unresolved") or [
-            "Analysis has not established a final assessment."
-        ]
-        lines.append("Unknowns: " + "; ".join(str(item)[:256] for item in unknowns[:3]))
     else:
-        lines.append(
-            "Execution: read-only overview; no new investigation started. No saved assessment was selected for this sample."
+        blocks.append(
+            block(
+                "Evidence coverage",
+                [
+                    "No matching accepted records were delivered for this selection. This does not establish absence of activity."
+                ],
+                "paragraph",
+            )
         )
-    lines.append(
-        "Coverage: at most 20 records per query and 6 queries; selection filters apply within that sample. This is not an exhaustive review."
-    )
-    if intent == "explain" and alerts:
-        lines.append(DEFINITIONS["alert"] + " " + DEFINITIONS["severity"])
-    lines.append(
-        "Next: inspect the cited records and confirm authorization with the asset owner; endpoint process and identity logs are not connected. Record an analyst decision after review."
-    )
-    result["reply"] = "\n".join(lines)
-    return result
+    if not saved:
+        blocks.insert(
+            0,
+            block(
+                "",
+                [
+                    f"This selection contains {len(alerts)} {'alert' if len(alerts) == 1 else 'alerts'} and {len(flows)} {'flow' if len(flows) == 1 else 'flows'} among {len(rows)} delivered {'record' if len(rows) == 1 else 'records'}. No new investigation has started."
+                ],
+                "paragraph",
+            ),
+        )
+    result["blocks"] = blocks
+    result["coverage"] = {
+        "delivered": len(rows),
+        "truncated": any(c["truncated"] for c in tools.activity),
+    }
+    return with_blocks(result)

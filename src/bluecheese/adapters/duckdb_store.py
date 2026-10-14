@@ -38,6 +38,11 @@ class EvidenceStore:
             self.db.execute(
                 "UPDATE runs SET status='INTERRUPTED', error='Application stopped before run completion' WHERE status='RUNNING'"
             )
+            self.db.execute("""UPDATE decision_advice
+                SET assessment=json_merge_patch(assessment,
+                    '{"status":"INTERRUPTED","failure_reason":"Runtime stopped before advice completion"}')
+                WHERE run_id IN (SELECT run_id FROM runs WHERE status='INTERRUPTED')
+                AND json_extract_string(assessment, '$.status')='STARTED'""")
             self.db.execute(
                 "UPDATE investigation_work SET status='INTERRUPTED', error='Runtime stopped during scheduled work; retry explicitly' WHERE status='RUNNING'"
             )
@@ -136,6 +141,7 @@ class EvidenceStore:
         limit=100,
         newest_first=False,
         snapshot_id=None,
+        related_first=False,
     ):
         table = "snapshot_evidence" if snapshot_id else "evidence"
         membership = "snapshot_id=? AND " if snapshot_id else ""
@@ -148,7 +154,9 @@ class EvidenceStore:
             + "scenario=? AND variant=? AND seq<=? AND "
             + clause
             + (
-                " ORDER BY seq DESC LIMIT ?"
+                " ORDER BY CASE event_type WHEN 'flow' THEN 0 WHEN 'http' THEN 1 WHEN 'dns' THEN 2 WHEN 'tls' THEN 3 ELSE 4 END,seq LIMIT ?"
+                if related_first
+                else " ORDER BY seq DESC LIMIT ?"
                 if newest_first
                 else " ORDER BY seq LIMIT ?"
             ),
@@ -203,6 +211,121 @@ class EvidenceStore:
             snapshot_id=snapshot_id,
         )
 
+    def find_related_events(
+        self,
+        scenario,
+        variant,
+        snapshot,
+        seed_id,
+        event_types,
+        limit=100,
+        *,
+        snapshot_id=None,
+    ):
+        """Filter before limiting; the seed and every result belong to one snapshot."""
+        if (
+            not isinstance(event_types, list)
+            or not 1 <= len(event_types) <= 5
+            or any(
+                kind not in ("alert", "flow", "dns", "http", "tls")
+                for kind in event_types
+            )
+        ):
+            raise ValueError("Unsupported related event types")
+        seed = self.get_event(
+            scenario, variant, snapshot, seed_id, snapshot_id=snapshot_id
+        )
+        if seed is None:
+            raise ValueError("Related-event seed is outside the fixed snapshot")
+        n = seed["normalized"]
+        try:
+            timestamp = datetime.fromisoformat(n["timestamp"])
+            if timestamp.tzinfo is None:
+                raise ValueError()
+        except (KeyError, TypeError, ValueError):
+            return []
+        clause = """source=? AND json_extract_string(normalized,'$.sensor') IS NOT DISTINCT FROM ?
+            AND src_ip=? AND dest_ip=?
+            AND abs(epoch(try_cast(json_extract_string(normalized,'$.timestamp') AS TIMESTAMPTZ))-?)<=300
+            AND (json_extract_string(normalized,'$.flow_id')=? OR
+                (json_extract_string(normalized,'$.src_port')=? AND
+                 json_extract_string(normalized,'$.dest_port')=? AND
+                 json_extract_string(normalized,'$.protocol')=?))
+            AND event_type IN (SELECT unnest(?))"""
+        return self.query(
+            scenario,
+            variant,
+            snapshot,
+            clause,
+            [
+                seed["source"],
+                n.get("sensor"),
+                n.get("src_ip"),
+                n.get("dest_ip"),
+                timestamp.timestamp(),
+                str(n["flow_id"]) if n.get("flow_id") is not None else None,
+                str(n["src_port"]) if n.get("src_port") is not None else None,
+                str(n["dest_port"]) if n.get("dest_port") is not None else None,
+                n.get("protocol"),
+                event_types,
+            ],
+            limit,
+            snapshot_id=snapshot_id,
+            related_first=True,
+        )
+
+    def record_provider(self, run_id, activity):
+        self.db.execute(
+            "INSERT INTO provider_diagnostics VALUES (?,?) ON CONFLICT(run_id) DO UPDATE SET activity=excluded.activity",
+            [run_id, json.dumps(activity, allow_nan=False)],
+        )
+
+    def get_provider(self, run_id):
+        row = self.db.execute(
+            "SELECT activity FROM provider_diagnostics WHERE run_id=?", [run_id]
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def telemetry_coverage(self, scenario, variant, snapshot, *, snapshot_id=None):
+        table = "snapshot_evidence" if snapshot_id else "evidence"
+        where = "scenario=? AND variant=? AND seq<=?"
+        args = [scenario, variant, snapshot]
+        if snapshot_id:
+            where += " AND snapshot_id=?"
+            args.append(snapshot_id)
+        counts = dict(
+            self.db.execute(
+                "SELECT event_type,count(*) FROM "
+                + table
+                + " WHERE "
+                + where
+                + " GROUP BY event_type",
+                args,
+            ).fetchall()
+        )
+        rejected = self.db.execute(
+            "SELECT error,count(*) FROM quarantine WHERE scenario=? AND variant=? GROUP BY error ORDER BY count(*) DESC LIMIT 20",
+            [scenario, variant],
+        ).fetchall()
+        times = self.db.execute(
+            "SELECT epoch(min(try_cast(json_extract_string(normalized, '$.timestamp') AS TIMESTAMPTZ))),epoch(max(try_cast(json_extract_string(normalized, '$.timestamp') AS TIMESTAMPTZ))) FROM "
+            + table
+            + " WHERE "
+            + where,
+            args,
+        ).fetchone()
+        return {
+            "time_window": [
+                datetime.fromtimestamp(t, UTC).isoformat() if t is not None else None
+                for t in times
+            ],
+            "accepted_types": counts,
+            "quarantine_reasons": [
+                {"reason": reason, "count": count} for reason, count in rejected
+            ],
+            "quarantine_scope": "Workspace ingestion history; quarantine is not frozen with the investigation.",
+        }
+
     def search_events(
         self, scenario, variant, snapshot, event_type, limit=100, *, snapshot_id=None
     ):
@@ -228,6 +351,16 @@ class EvidenceStore:
             [scenario, variant],
         ).fetchone()[0]
         return {"accepted": accepted, "invalid": invalid}
+
+    def telemetry_totals(self, scenario, variant):
+        """Operational counters; no latest-N cutoff and no investigation retrieval."""
+        row = self.db.execute(
+            "SELECT count(*), count(*) FILTER (WHERE event_type='alert'), "
+            "count(*) FILTER (WHERE event_type='flow') FROM evidence "
+            "WHERE scenario=? AND variant=?",
+            [scenario, variant],
+        ).fetchone()
+        return dict(zip(("accepted", "alerts", "flows"), row))
 
     def browse_telemetry(
         self,
@@ -373,6 +506,25 @@ class EvidenceStore:
             for row in self.db.execute(
                 "SELECT source,created_at,committed_offset,diagnostic FROM source_incidents ORDER BY created_at DESC LIMIT 100"
             ).fetchall()
+        ]
+
+    def case_source_incidents(self, snapshot_id):
+        sources = [
+            row[0]
+            for row in self.db.execute(
+                "SELECT DISTINCT source FROM snapshot_evidence WHERE snapshot_id=?",
+                [snapshot_id],
+            ).fetchall()
+        ]
+        return [
+            incident
+            for incident in self.source_incidents()
+            if any(
+                source == incident["source"]
+                or source == "file:" + incident["source"]
+                or source.startswith("file:" + incident["source"] + "@")
+                for source in sources
+            )
         ]
 
     def claim_work(self):
@@ -650,6 +802,24 @@ class EvidenceStore:
             [run_id, ordinal, json.dumps(activity)],
         )
 
+    def save_decision_advice(self, run_id, advice):
+        row = self.db.execute(
+            "SELECT snapshot_id FROM runs WHERE run_id=? AND status='RUNNING'", [run_id]
+        ).fetchone()
+        if not row or advice["scope"]["snapshot_id"] != row[0]:
+            raise ValueError("Decision advice must belong to an active run snapshot")
+        self.db.execute(
+            "INSERT INTO decision_advice VALUES (?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET assessment=excluded.assessment",
+            [run_id, row[0], json.dumps(advice, allow_nan=False)],
+        )
+
+    def get_decision_advice(self, scenario, variant, run_id):
+        row = self.db.execute(
+            "SELECT d.assessment FROM decision_advice d JOIN snapshots s ON d.snapshot_id=s.snapshot_id WHERE d.run_id=? AND s.scenario=? AND s.variant=?",
+            [run_id, scenario, variant],
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def finish_run(self, run_id, status, report=None, error=None):
         if status not in {"COMPLETED", "INCOMPLETE", "CANCELLED", "FAILED"}:
             raise ValueError("Invalid terminal run status")
@@ -680,7 +850,7 @@ class EvidenceStore:
 
     def list_runs(self, scenario, variant, limit=100):
         rows = self.db.execute(
-            "SELECT r.run_id,r.status,s.revision,r.created_at,r.parent_run_id,s.snapshot_id,s.question,w.title,w.owner,w.disposition FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE s.scenario=? AND s.variant=? ORDER BY r.created_at DESC,r.run_id LIMIT ?",
+            "SELECT r.run_id,r.status,s.revision,r.created_at,r.parent_run_id,s.snapshot_id,s.question,w.title,w.owner,w.disposition,r.case_id FROM runs r JOIN snapshots s ON r.snapshot_id=s.snapshot_id LEFT JOIN case_workspace w ON w.case_id=r.case_id WHERE s.scenario=? AND s.variant=? ORDER BY r.created_at DESC,r.run_id LIMIT ?",
             [scenario, variant, max(1, min(int(limit), 100))],
         ).fetchall()
         return [
@@ -697,6 +867,7 @@ class EvidenceStore:
                         "title",
                         "owner",
                         "disposition",
+                        "case_id",
                     ),
                     row,
                 )
@@ -743,6 +914,8 @@ class EvidenceStore:
             "report": json.loads(row[1]) if row[1] else None,
             "error": row[2],
             "tool_activity": [json.loads(call[0]) for call in trace],
+            "decision_advice": self.get_decision_advice(scenario, variant, run_id),
+            "provider_diagnostics": self.get_provider(run_id),
         }
 
     def attention(self, scenario, variant, snapshot, page=1):

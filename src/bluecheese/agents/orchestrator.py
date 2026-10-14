@@ -69,7 +69,12 @@ class Orchestrator:
                     "Linking evidence by source, sensor, time and connection.",
                     kind="rules",
                 )
-                related = tools.call("find_events_by_ip", ip=ip, limit=100)
+                related = tools.call(
+                    "find_related_events",
+                    seed_id=seed["id"],
+                    event_types=["flow", "http", "dns", "tls", "alert"],
+                    limit=100,
+                )
                 correlations.append(self.correlation.correlate(seed, related))
                 tools.emit(
                     "Correlation",
@@ -96,6 +101,30 @@ class Orchestrator:
             if correlations
             else (alerts[0]["id"] if alerts else None)
         )
+        if getattr(provider, "prefetch_protocol_context", False):
+            # Alert-heavy broad queries can exhaust delivery bytes before protocol
+            # observations. Acquire one bounded typed slice of an observed protocol.
+            kinds = {
+                row["normalized"]["event_type"] for row in tools.retrieved.values()
+            }
+            kind = next(
+                (value for value in ("http", "dns", "tls") if value in kinds), None
+            )
+            if kind:
+                tools.emit(
+                    "Orchestrator",
+                    "working",
+                    "Retrieving bounded protocol context to complement alert and flow evidence.",
+                )
+                tools.call(
+                    "find_related_events",
+                    seed_id=tools.selected_seed_id,
+                    event_types=[kind],
+                    limit=20,
+                )
+        advisor = getattr(tools, "decision_provider", None)
+        if advisor is not None:
+            advisor.assess(tools)
         if not falsification:
             tools.emit(
                 "Falsifier",
@@ -125,6 +154,7 @@ class Orchestrator:
                 "Orchestrator",
                 "Triage",
                 "Correlation",
+                *(["Decision model"] if advisor else []),
                 "Investigator",
                 "Falsifier",
                 "Reporter",

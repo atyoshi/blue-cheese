@@ -29,6 +29,12 @@ def reference_ids(report):
     ids = set(report["supporting_ids"] + report["contradicting_ids"])
     for claim in report["claims"]:
         ids.update(claim["citations"])
+        ids.update(claim.get("contradicting_ids", []))
+    ids.update(
+        report.get("findings", {}).get("observed_impact", {}).get("citations", [])
+    )
+    ids.update(report.get("decision_advice", {}).get("input_ids", []))
+    ids.update(item["evidence_id"] for item in report.get("protocol_observations", []))
     for key in ("returned_ids", "counterevidence_ids"):
         ids.update(report["falsifier"].get(key, []))
     for candidate in report.get("triage", {}).get("candidates", []):

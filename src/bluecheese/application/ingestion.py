@@ -45,7 +45,11 @@ class EveFollower:
         return self.path.open("rb")
 
     def _current_stat(self):
-        return os.fstat(self.held_stream.fileno()) if self.held_stream is not None else self.path.stat()
+        return (
+            os.fstat(self.held_stream.fileno())
+            if self.held_stream is not None
+            else self.path.stat()
+        )
 
     def poll_once(self):
         with self._open() as stream:
@@ -154,3 +158,18 @@ class EveFollower:
             "committed_offset": self.committed,
             "partial_bytes": self.scanned - self.committed,
         }
+
+
+def import_static_eve(store, path):
+    """Reuse ingestion identities, quarantine and atomic cursors on the DB owner."""
+    follower = EveFollower(store, path, "live", "external")
+    try:
+        # 16 MiB plus an EOF check; a growing source cannot make this unbounded.
+        for _ in range(65):
+            result = follower.poll_once()
+            if not result["bytes_read"]:
+                return result
+        return {**result, "notice": "Read limit reached; use /follow to continue"}
+    except SourceGap as error:
+        store.record_source_incident(str(path), follower.committed, str(error))
+        raise

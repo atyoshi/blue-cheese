@@ -39,8 +39,6 @@ def main():
     alerts.add_argument('--limit', type=int, default=100)
     for name in ('triage', 'evidence', 'report'):
         commands.add_parser(name).add_argument('event_id')
-    web = commands.add_parser('serve', help='Start the local analyst interface')
-    web.add_argument('--port', type=int, default=8765)
     gui = commands.add_parser('gui', help='Open the real-telemetry analyst console')
     gui.add_argument('--port', type=int, help='Explicit port; otherwise start at 8501 and try the next free port')
     doctor_parser = commands.add_parser('doctor', help='Offline configuration/schema checks (stop GUI first)')
@@ -94,19 +92,8 @@ def main():
                 store.close()
         elif args.command == 'gui':
             result = subprocess.run(
-                [sys.executable, '-m', 'streamlit', 'run',
-                 str(Path(__file__).parent / 'interfaces' / 'console.py'),
-                 '--server.address=127.0.0.1',
-                 *([f'--server.port={args.port}'] if args.port is not None else []),
-                 '--server.headless=true',
-                 '--browser.gatherUsageStats=false',
-                 '--client.toolbarMode=minimal',
-                 '--theme.base=dark',
-                 '--theme.primaryColor=#38bdb4',
-                 '--theme.backgroundColor=#0b1220',
-                 '--theme.secondaryBackgroundColor=#132035',
-                 '--theme.textColor=#e5edf6',
-                 '--theme.font=sans-serif'],
+                [sys.executable, '-m', 'bluecheese.interfaces.server',
+                 *(['--port', str(args.port)] if args.port is not None else [])],
                 env={**os.environ, 'BLUECHEESE_STATE': str(directory.resolve())},
                 check=False,
             )
@@ -122,11 +109,6 @@ def main():
             output = triage_alert(directory, args.event_id)
         elif args.command == 'report':
             output = case_report(directory, args.event_id)
-        elif args.command == 'serve':
-            from bluecheese.interfaces.web import serve
-
-            serve(directory, port=args.port)
-            return
         else:
             with EvidenceStore(directory / 'bluecheese.sqlite3') as store:
                 if args.command == 'alerts':

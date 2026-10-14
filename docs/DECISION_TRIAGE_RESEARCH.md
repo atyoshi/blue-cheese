@@ -1,7 +1,10 @@
 # Decision-model triage research — 2026-10-13
 
-Research only. No decision-model adapter, model download, model-server update or
-suppression policy was introduced by this note. Current GUI triage remains rules.
+Implementation update (2026-10-14): optional native advice, scoped persistence and comparison
+tooling now implement the first advisory slice described below. See
+[Investigation assessments](INVESTIGATION_ASSESSMENTS.md). Native live validation
+awaits a compatible configured decision model. Current GUI triage remains rules;
+no model downloads, server updates or suppression policy are introduced.
 
 ## Verified upstream capability
 
@@ -35,28 +38,64 @@ unknown unless later integrations actually supply them. EVE `flow_id` can relate
 records where available; correlation must retain source/time/endpoint validation.
 [Suricata EVE fields](https://docs.suricata.io/en/suricata-8.0.6/output/eve/eve-json-format.html).
 
-Proposed routing options:
-- **Investigate:** put into the full-investigation queue.
-- **Lower priority:** retain searchable evidence and a visible deferred queue.
-- **Needs review:** uncertainty, missing context, invalid output, overload or model
-  unavailability; preserve deterministic priority and require review.
+## Intended first application: advisory assessment
 
-A routing label is not an incident verdict. Urgent deterministic policy must override
-model deprioritization. Never delete records, equate low priority with benign, or
-silently drop work when a classifier is unavailable. Do not invent a model rationale:
-store the actual input record references, option scores, policy/model versions and
-software rule overrides. Full Investigator/Falsifier work supplies cited analysis.
+Show the analyst an additional assessment alongside existing rule priority and
+cited findings. Distinguish **suggested review importance**, **model scores
+(uncalibrated)** and **missing evidence**. Include the assessment, option scores,
+case/variant and snapshot scope, actual input evidence references, important
+unknowns and model/policy versions. Do not invent a model rationale. Preserve an
+explicit **insufficient evidence** outcome. Invalid output, overload or classifier
+unavailability must be visibly unavailable, never interpreted as a low-risk score.
 
-## Evaluation before routing authority
+Keep importance, maliciousness and confidence in a finding distinct. Urgency or
+potential impact does not establish maliciousness, and an option score is not
+calibrated finding confidence. Unknown authorization or endpoint context remains
+unknown regardless of the score.
 
-Start in shadow mode: record proposed labels alongside existing rule priorities
-without hiding alerts or changing scheduling. Compare Julia-1 (144M), Laya (421M)
-and Kev-4B as candidate sizes; suitability for Suricata security triage is unproven.
-Use locally supplied, legally usable analyst-labelled cases and separate evaluation
-splits. Measure missed investigation-worthy cases first, then queue reduction,
-precision, abstention rate, p95 latency and sustained backlog. Audit a sample of
-lower-priority decisions and include adversarial/missing-context inputs. Select
-thresholds from measured error tradeoffs; no default probability is justified yet.
+Supply the investigation model with a bounded, explicitly labelled **upstream
+model assessment**, including its input references, option scores, scope and
+unknowns within existing context and retrieval budgets. The Investigator must
+assess the underlying evidence and may disagree; the Falsifier must remain able
+to challenge claims. Two models assessing the same records do not provide
+independent corroborating evidence. A classifier score cannot substitute for a
+cited observation. Upstream references do not automatically authorize citations:
+findings must cite evidence actually retrieved for that scoped run and snapshot.
+
+Keep analyst decisions and application controls separate from advice. Scores
+alone must not start investigations, reorder or suppress alerts, close cases, or
+authorize actions. Navigation and rerenders must never launch work. Existing
+rules, explicit execution controls, scope, budgets and citation validation remain
+in force. The initial advisory interface is now implemented; native live validation remains pending.
+
+## Evaluation before advisory adoption
+
+Compare investigations **with and without the advisory assessment**, using matched
+cases, frozen evidence, investigation settings and budgets. Use locally supplied,
+legally usable analyst-labelled cases and separate evaluation splits. Measure
+analyst usefulness and completion, time saved, finding quality, unsupported
+conclusions and whether misleading scores anchor the investigation model. Review
+semantic support as well as mechanical citation validity. Synthetic tests do not
+establish detection accuracy or commercial readiness.
+
+Include confidently wrong classifications, missing telemetry, correlated records,
+model disagreement, adversarial inputs and unavailable classifiers. Verify that
+correlated records do not become independent corroboration, insufficient evidence
+survives high scores, and the Investigator can disagree based on retrieved evidence.
+Check that cited findings remain grounded in actual scoped run retrieval and that
+navigation never launches work. Unavailable assessments must leave the existing
+analyst workflow usable.
+
+Compare Julia-1 (144M), Laya (421M) and Kev-4B as candidate sizes; suitability for
+Suricata security triage is unproven. Also measure abstention, p95 latency and
+sustained backlog. Scores start explicitly uncalibrated; no default probability
+threshold is justified without application-specific evaluation.
+
+Routing automation is a separately evaluated future possibility, not the initial
+application. Any future proposal needs measured missed investigation-worthy cases,
+precision, queue effects and audits of lower-priority outcomes before requesting
+routing authority. Retain visible evidence and deterministic urgent-review policy;
+never equate low priority with benign or silently drop work on classifier failure.
 
 Model licenses are a selection constraint for a paid product. The current cards
 list Apache 2.0 for [Julia-1](https://huggingface.co/ggml-org/Julia-1-GGUF),

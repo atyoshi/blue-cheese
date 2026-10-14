@@ -11,6 +11,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from jsonschema import ValidationError, validate
 
 from bluecheese.agents.investigator import BudgetExceeded, Falsifier
+from bluecheese.domain.models import model_observation
 
 TEXT = {"type": "string"}
 IDS = {"type": "array", "items": TEXT}
@@ -122,6 +123,10 @@ def request_completion(profile, payload, timeout):
     request = Request(
         profile.endpoint, json.dumps(payload).encode(), headers, method="POST"
     )
+    timeout_message = (
+        "Model provider connection or response timed out "
+        f"(configured limit: {timeout:g} seconds); check connectivity and provider latency"
+    )
     try:
         with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
             body = response.read(131073)
@@ -130,12 +135,10 @@ def request_completion(profile, payload, timeout):
             f"Model provider returned HTTP {error.code}; response body withheld"
         ) from None
     except TimeoutError:
-        raise RuntimeError(
-            f"Model provider timed out after {timeout:g} seconds; increase timeout for slow inference"
-        ) from None
+        raise RuntimeError(timeout_message) from None
     except URLError as error:
         message = (
-            f"Model provider timed out after {timeout:g} seconds; increase timeout for slow inference"
+            timeout_message
             if isinstance(error.reason, TimeoutError)
             else "Model provider connection failed; check endpoint and connectivity"
         )
@@ -171,10 +174,7 @@ class StructuredModelProvider:
             }
         )
         # The model only receives normalized observations actually delivered by the broker.
-        evidence = [
-            {"id": row["id"], "normalized": row["normalized"]}
-            for row in tools.retrieved.values()
-        ]
+        evidence = [model_observation(row) for row in tools.retrieved.values()]
         context = json.dumps(
             {"observations": evidence, "countertest": countertest}, ensure_ascii=True
         )

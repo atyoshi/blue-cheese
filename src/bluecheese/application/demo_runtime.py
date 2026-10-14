@@ -34,6 +34,7 @@ class DemoRuntime:
         self.lock = threading.RLock()
         self.activity = RunActivity(self.lock)
         self.provider = None if load_fixtures or practice else configured_provider()
+        self.decision_provider = None
         self.database = StoreWorker(self.state_dir / "evidence.duckdb")
         self.activity.persist = lambda run_id, event: self.database.call(
             "record_activity", run_id, event
@@ -101,7 +102,7 @@ class DemoRuntime:
                 raise RuntimeError("Runtime is closed")
         return self.database.call(method, *args, **kwargs)
 
-    def configure_provider(self, provider):
+    def configure_provider(self, provider, *, decision=False):
         """Apply process-local settings only between investigations."""
         with self.lock:
             if self.closed or self.closing:
@@ -114,7 +115,10 @@ class DemoRuntime:
                 raise RuntimeError(
                     "Wait for the current investigation before changing providers"
                 )
-            self.provider = provider
+            if decision:
+                self.decision_provider = provider
+            else:
+                self.provider = provider
 
     def begin_chat(self, message, run_id=None, view_context=None):
         from bluecheese.application.workspace_chat import respond
@@ -141,6 +145,7 @@ class DemoRuntime:
             self.chat_cancel.clear()
             self.chat_started = datetime.now(UTC)
             self.command("append_chat", "live", "external", run_id, "user", message)
+            self.chat_started_at = datetime.now(UTC).isoformat()
             self.pending_chat = self.chat_executor.submit(
                 respond, self, message, run_id, view_context
             )
@@ -149,7 +154,7 @@ class DemoRuntime:
     def cancel_chat(self):
         self.chat_cancel.set()
 
-    def test_provider(self):
+    def test_provider(self, *, decision=False):
         if not self.run_lock.acquire(blocking=False):
             raise RuntimeError(
                 "Wait for the current investigation before testing the provider"
@@ -162,7 +167,7 @@ class DemoRuntime:
                     raise RuntimeError(
                         "Wait for the pending investigation before testing the provider"
                     )
-                provider = self.provider
+                provider = self.decision_provider if decision else self.provider
             if not provider or not hasattr(provider, "test_connection"):
                 raise ValueError("Apply a tool-using agent provider before testing")
             return provider.test_connection()
@@ -219,16 +224,37 @@ class DemoRuntime:
                 synthetic=self.practice
                 or scenario in SCENARIOS
                 or (scenario == "live" and variant == "replay"),
-                **{"provider": provider, **settings},
+                **{
+                    "provider": provider,
+                    "decision_provider": self.decision_provider,
+                    **settings,
+                },
             )
             if scenario == "live" and variant == "external":
-                report["source_incidents"] = self.database.call("source_incidents")
+                report["source_incidents"] = self.database.call(
+                    "case_source_incidents", run["snapshot_id"]
+                )
                 if report["source_incidents"]:
                     report["warnings"].append(
-                        "Source incidents are recorded for this state directory; telemetry coverage is incomplete or uncertain. Inspect sensor health before relying on absence of activity."
+                        "Source incidents affect this investigation's evidence sources; telemetry coverage is incomplete or uncertain. Inspect sensor health before relying on absence of activity."
                     )
                     if report["verdict"] in ("BENIGN", "BENIGN_CONFOUNDER"):
                         report["verdict"] = "UNCERTAIN"
+                        if report.get("findings"):
+                            original = report["findings"]["activity_assessment"]
+                            report["findings"]["activity_assessment"] = (
+                                "INSUFFICIENT_EVIDENCE"
+                            )
+                            report["qualifiers"]["activity_assessment"] = (
+                                "INSUFFICIENT_EVIDENCE"
+                            )
+                            report["assessment_adjustments"] = [
+                                {
+                                    "policy": "source-continuity",
+                                    "original_activity_assessment": original,
+                                    "reason": "Source continuity incidents prevent accepting a benign assessment.",
+                                }
+                            ]
                         report["unresolved"].append(
                             "Resolve source continuity incidents before accepting a benign interpretation."
                         )
@@ -268,6 +294,22 @@ class DemoRuntime:
             )
             self.activity.finish(report["run_status"])
             return report
+        except KeyboardInterrupt:
+            self.cancel_event.set()
+            self.activity.emit(
+                "Orchestrator",
+                "cancelled",
+                "Investigation interrupted by the operator.",
+            )
+            self.activity.finish("CANCELLED")
+            if run:
+                self.database.call(
+                    "finish_run",
+                    run["run_id"],
+                    "CANCELLED",
+                    error="Interrupted by operator",
+                )
+            raise
         except Exception as error:
             current = self.activity.snapshot()["events"]
             role = current[-1]["role"] if current else "Orchestrator"

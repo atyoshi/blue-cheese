@@ -48,8 +48,8 @@ def test_remote_http_explicit_opt_in_and_environment(monkeypatch):
 @pytest.mark.parametrize(
     "failure,expected",
     [
-        (TimeoutError(), "timed out after 20 seconds"),
-        (URLError(TimeoutError()), "timed out after 20 seconds"),
+        (TimeoutError(), "timed out \\(configured limit: 20 seconds\\)"),
+        (URLError(TimeoutError()), "timed out \\(configured limit: 20 seconds\\)"),
         (URLError("private error details"), "connection failed"),
     ],
 )

@@ -1,8 +1,7 @@
-import json
 from pathlib import Path
 
 from bluecheese.adapters.duckdb_store import EvidenceStore
-from bluecheese.application.telemetry_visuals import connection_graph, summarize
+from bluecheese.application.telemetry_visuals import summarize
 
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
 
@@ -63,20 +62,23 @@ def test_time_bins_preserve_gaps_and_missing_times_are_not_fabricated():
     assert sum(r["records"] for r in distant["timeline"]) == 2
 
 
-def test_connection_graph_quotes_untrusted_labels_and_retains_readable_unicode():
-    address = 'x"; malicious -> node; //'
-    graph = connection_graph(
-        [
-            {
-                "source": address,
-                "destination": "192.0.2.2",
-                "alerts": 1,
-                "flows": 2,
-                "records": 3,
-            }
-        ]
-    )
-    assert f"label={json.dumps(address)}" in graph
-    assert "1 alert · 2 flows" in graph
-    assert "\\u00b7" not in graph
-    assert "s0 -> d0" in graph
+def test_protocol_records_are_counted_without_becoming_flows():
+    rows = [
+        {
+            "event_type": kind,
+            "src_ip": "a",
+            "dest_ip": "b",
+            "protocol": "TCP",
+            "timestamp": "2026-01-01T00:00:00Z",
+        }
+        for kind in ("alert", "flow", "dns", "http", "tls")
+    ]
+    result = summarize(rows)
+    assert result["connections"][0] == {
+        "source": "a",
+        "destination": "b",
+        "records": 5,
+        "alerts": 1,
+        "flows": 1,
+    }
+    assert sum(row["records"] for row in result["timeline"]) == 5

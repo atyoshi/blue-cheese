@@ -1,108 +1,10 @@
-import json
 import threading
 from pathlib import Path
 
-from streamlit.testing.v1 import AppTest
-
-from bluecheese.adapters.agent_provider import AgentModelProvider
-from bluecheese.adapters.model_provider import ModelProfile
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.run_activity import RunActivity
 
-APP = Path(__file__).parents[1] / "src/bluecheese/interfaces/console.py"
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
-
-
-def test_live_model_wait_handoffs_gui_rerenders_and_cancellation(tmp_path, monkeypatch):
-    runtime = DemoRuntime(tmp_path / "state", load_fixtures=False)
-    entered, release = threading.Event(), threading.Event()
-    calls = []
-
-    def transport(profile, payload, timeout):
-        calls.append(payload)
-        entered.set()
-        assert release.wait(10), "Test did not release the model transport"
-        context = json.loads(payload["messages"][1]["content"])
-        event_id = context["selected_seed_id"]
-        return {
-            "choices": [
-                {
-                    "finish_reason": "stop",
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "verdict": "UNCERTAIN",
-                                "hypothesis": "Sensor alert observed.",
-                                "supporting_ids": [event_id],
-                                "contradicting_ids": [],
-                                "claims": [
-                                    {
-                                        "text": "An alert was retrieved.",
-                                        "citations": [event_id],
-                                    }
-                                ],
-                                "disconfirmation_test": "Review related flows.",
-                                "unresolved": ["Intent unknown."],
-                            }
-                        )
-                    },
-                }
-            ]
-        }
-
-    try:
-        runtime.command("import_file", FIXTURE, "live", "external")
-        runtime.configure_provider(
-            AgentModelProvider(
-                ModelProfile("http://localhost:8080/v1/chat/completions", "test-model"),
-                transport,
-            )
-        )
-        future = runtime.begin_run("live", "external", max_seconds=30)
-        assert entered.wait(5)
-        activity = runtime.activity.snapshot()
-        assert activity["state"] == "RUNNING"
-        assert activity["events"][-1]["role"] == "Investigator"
-        assert activity["events"][-1]["kind"] == "model"
-        assert "Awaiting model response" in activity["events"][-1]["message"]
-        assert any(
-            e["role"] == "Triage" and e["handoff_to"] == "Orchestrator"
-            for e in activity["events"]
-        )
-        assert any(
-            e["role"] == "Orchestrator" and e["handoff_to"] == "Investigator"
-            for e in activity["events"]
-        )
-        activity["events"][-1]["message"] = "mutated"
-        assert runtime.activity.snapshot()["events"][-1]["message"] != "mutated"
-        monkeypatch.setenv("BLUECHEESE_STATE", str(tmp_path / "state"))
-        monkeypatch.setattr(
-            "bluecheese.application.demo_runtime.DemoRuntime",
-            lambda *args, **kwargs: runtime,
-        )
-        app = AppTest.from_file(str(APP), default_timeout=20).run()
-        app.sidebar.radio[0].set_value("Investigations").run()
-        assert not app.exception
-        assert any("Awaiting model response" in item.value for item in app.text)
-        assert any("prioritized group" in item.value for item in app.text)
-        assert any("model" in item.value for item in app.caption)
-        app.run()
-        assert len(calls) == 1
-        assert runtime.status()["investigation_runs"] == 1
-        assert runtime.status()["worker_starts"] == 0
-        runtime.cancel()
-        app.run()
-        assert any("Cancellation requested" in item.value for item in app.text)
-        release.set()
-        assert future.result(5)["run_status"] == "CANCELLED"
-        app.run()
-        assert not app.exception
-        assert runtime.activity.snapshot()["state"] == "CANCELLED"
-        assert any("Investigation cancelled" in item.value for item in app.text)
-        assert len(calls) == 1
-    finally:
-        release.set()
-        runtime.close()
 
 
 def test_finished_trace_is_saved_and_new_run_replaces_live_trace(tmp_path):

@@ -35,7 +35,7 @@ def test_semantic_pipeline(store, scenario, variant, verdict, status):
     report = investigate(store, scenario, variant)
     assert report["verdict"] == verdict
     assert report["falsifier"]["status"] == status
-    assert report["tool_activity"][-1]["tool"] == "find_events_by_ip"
+    assert report["tool_activity"][-1]["tool"] == "find_related_events"
     for ref in report["supporting_ids"] + report["contradicting_ids"]:
         assert store.get_event(scenario, variant, report["snapshot"], ref)
     assert json.loads(json_report(report)) == report

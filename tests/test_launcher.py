@@ -44,12 +44,8 @@ def test_short_gui_commands_use_operational_state_and_respect_override(
         monkeypatch.setattr("sys.argv", ["bluecheese", *arguments])
         main()
         command, kwargs = calls[-1]
-        assert command[1:4] == ["-m", "streamlit", "run"]
-        assert command[4].endswith("/interfaces/console.py")
+        assert command[1:3] == ["-m", "bluecheese.interfaces.server"]
         assert kwargs["env"]["BLUECHEESE_STATE"] == str(expected)
-        # The installed command must retain its theme outside the repository.
-        assert "--theme.base=dark" in command
-        assert "--theme.primaryColor=#38bdb4" in command
-    assert not any(arg.startswith("--server.port=") for arg in calls[0][0])
-    assert not any(arg.startswith("--server.port=") for arg in calls[1][0])
-    assert "--server.port=8502" in calls[-1][0]
+    assert "--port" not in calls[0][0]
+    assert "--port" not in calls[1][0]
+    assert calls[-1][0][-2:] == ["--port", "8502"]

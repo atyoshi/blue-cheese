@@ -117,7 +117,7 @@ The mandatory path is sensor output  ->  SourceReader  ->  raw envelope  ->  Sen
 
 ### Physical runtime
 
-The initial deployment is a single Python application process with a process-wide RuntimeManager. It owns a dedicated database worker, one or more bounded ingestion workers, a scheduler, a small investigation executor, and lifecycle state. Streamlit sessions use the same facade. Background workers never invoke Streamlit APIs. Database operations run on the owning worker; provider calls run outside it. Default model concurrency is one to avoid oversubscribing a local model or duplicating cost.
+The initial deployment is a single Python application process with a process-wide RuntimeManager. It owns a dedicated database worker, one or more bounded ingestion workers, a scheduler, a small investigation executor, and lifecycle state. The React frontend uses the same facade through the single-process HTTP API. Background workers never invoke UI APIs. Database operations run on the owning worker; provider calls run outside it. Default model concurrency is one to avoid oversubscribing a local model or duplicating cost.
 
 A portable exclusive lock on the canonical data directory prevents a second application runtime from opening the same database for writing. Resolve symlinks before constructing the lock path. Acquire the lock before migrations or worker startup. Reject conflicting CLI commands with a useful explanation; they may instead use another data directory or operate when the GUI runtime is stopped. Do not automatically delete a lock merely because a PID looks stale; use the lock library's ownership semantics.
 
@@ -125,7 +125,7 @@ DuckDB supports concurrency choices beyond this application design, and its capa
 
 ### Trust and dependency boundaries
 
-Domain models must not import Streamlit, provider SDKs or concrete database clients. Application services depend on protocols. Adapters depend inward on domain contracts. The UI calls application services; it does not run SQL or manage threads. The broker holds run-bound scope that callers cannot replace. Provider adapters return candidate outputs, never authoritative findings. Validators and policy controllers decide what is accepted.
+Domain models must not import frontend code, HTTP frameworks, provider SDKs or concrete database clients. Application services depend on protocols. Adapters depend inward on domain contracts. The UI calls application services; it does not run SQL or manage threads. The broker holds run-bound scope that callers cannot replace. Provider adapters return candidate outputs, never authoritative findings. Validators and policy controllers decide what is accepted.
 
 Trusted execution includes shipped code, pinned dependencies, explicit configuration and local operator actions. Sensor output is attributed input, not automatically truthful input. A trusted sensor can record attacker-controlled strings. A previously valid context document can become outdated. An analyst note is separately attributed and timestamped rather than silently merged into a sensor observation.
 
@@ -781,7 +781,7 @@ Assert budgets include failed attempts and repairs; cancellation prevents new ca
 
 ### UI and release gates
 
-Use Streamlit AppTest for supported interactions and call it a simulated UI integration test. Separately launch the application and perform a manual or browser-driven journey when tooling permits. Verify raw/normalized views, citation navigation, start/stop, replay counts, cancellation and export. Import success alone is not a launch test.
+Use isolated API tests and Playwright browser journeys against the ordinary packaged application. Keep example preparation in the test harness or README instructions. Verify raw/normalized views, citation navigation, start/stop, replay counts, cancellation and export. Import success alone is not a launch test.
 
 For deterministic core modules, retain an 85% coverage target from the earlier plan, with explicit module scope and exclusions. Coverage is a diagnostic, not a substitute for failure-path tests. Release gates require passing lint and offline suites, tested migration/restore behavior for storage changes, accurate platform status and no unresolved invariant failure. Report PASS, FAIL or NOT VERIFIED for each gate rather than implying that intended support was tested.
 

@@ -7,12 +7,13 @@ name = "blue-cheese"
 version = "0.1.0"
 description = "A lightweight, evidence-centered network security investigation framework"
 requires-python = ">=3.11"
-dependencies = ["duckdb==1.5.0", "streamlit==1.64.0", "jsonschema==4.26.0"]
+dependencies = ["duckdb==1.5.0", "starlette==1.7.0", "uvicorn==0.54.0", "jsonschema==4.26.0"]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "httpx==0.28.1",
 ]
 
 [project.scripts]
@@ -30,3 +31,5 @@ line-length = 88
 
 [tool.setuptools.package-data]
 "bluecheese.data" = ["*.jsonl"]
+
+"bluecheese.interfaces" = ["static/*", "static/assets/*"]

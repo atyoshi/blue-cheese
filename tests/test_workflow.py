@@ -5,14 +5,12 @@ import threading
 from pathlib import Path
 
 import pytest
-from streamlit.testing.v1 import AppTest
 
 from bluecheese.adapters.agent_provider import AgentModelProvider
 from bluecheese.adapters.model_provider import ModelProfile
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.telemetry_visuals import rank_endpoints
 
-APP = Path(__file__).parents[1] / "src/bluecheese/interfaces/console.py"
 FIXTURE = Path(__file__).parent / "fixtures/sample_eve.json"
 SCOPE = ("live", "external")
 
@@ -213,74 +211,6 @@ def test_chat_wait_duplicate_request_and_cancellation(tmp_path):
         assert len(runtime.command("chat_history", *SCOPE)) == 2
     finally:
         release.set()
-        runtime.close()
-
-
-def test_real_journey_in_gui_and_readonly_refresh(tmp_path, monkeypatch):
-    runtime = DemoRuntime(tmp_path / "state", load_fixtures=False)
-    import_scenario(runtime, tmp_path)
-    monkeypatch.setenv("BLUECHEESE_STATE", str(tmp_path / "state"))
-    monkeypatch.setattr(
-        "bluecheese.application.demo_runtime.DemoRuntime",
-        lambda *args, **kwargs: runtime,
-    )
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
-    try:
-        assert app.sidebar.radio[0].value == "Needs attention"
-        next(
-            button for button in app.button if button.label == "Investigate"
-        ).click().run()
-        runtime.pending_run.result(10)
-        app.run()
-        assert not app.exception
-        assert app.sidebar.radio[0].value == "Investigations"
-        assert any("10.0.0.24" in item.value for item in app.text)
-        assert any("records returned" in item.value for item in app.text)
-        assert (
-            next(
-                metric for metric in app.metric if metric.label == "Host compromise"
-            ).value
-            == "Unconfirmed"
-        )
-        app.chat_input[0].set_value("/status").run()
-        runtime.pending_chat.result(5)
-        app.run()
-        assert not app.exception
-        assert any("Stored evidence: 2 accepted" in item.value for item in app.text)
-        next(item for item in app.text_input if item.label == "Analyst").set_value(
-            "Analyst"
-        )
-        next(item for item in app.text_input if item.label == "Assigned to").set_value(
-            "On-call"
-        )
-        next(item for item in app.selectbox if item.label == "Disposition").set_value(
-            "ESCALATED"
-        )
-        next(
-            item for item in app.button if item.label == "Save analyst action"
-        ).click().run()
-        next(
-            button for button in app.sidebar.button if button.label == "Refresh now"
-        ).click().run()
-        assert not app.exception
-        assert (
-            next(metric for metric in app.metric if metric.label == "Assigned to").value
-            == "On-call"
-        )
-        assert any("View refreshed" in item.value for item in app.success)
-        assert runtime.status()["investigation_runs"] == 1
-        assert runtime.status()["worker_starts"] == 0
-        assert (
-            len(
-                runtime.command(
-                    "chat_history",
-                    *SCOPE,
-                    runtime.command("list_runs", *SCOPE)[0]["run_id"],
-                )
-            )
-            == 2
-        )
-    finally:
         runtime.close()
 
 

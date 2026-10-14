@@ -16,7 +16,7 @@ from bluecheese.adapters.model_provider import (
 )
 from bluecheese.agents.triage import TriageAgent
 from bluecheese.application.demo_runtime import DemoRuntime
-from bluecheese.application.ingestion import EveFollower, SourceGap
+from bluecheese.application.ingestion import import_static_eve
 from bluecheese.application.source_path import readable_eve_path
 from bluecheese.application.telemetry_visuals import summarize
 from bluecheese.application.view_context import ViewContext, read_answer, reading_intent
@@ -102,21 +102,6 @@ def safe_text(value):
         else f"\\u{ord(c):04x}"
         for c in str(value)
     )
-
-
-def import_static_eve(store, path):
-    """Reuse ingestion identities, quarantine and atomic cursors on the DB owner."""
-    follower = EveFollower(store, path, *SCOPE)
-    try:
-        # 16 MiB plus an EOF check; a growing source cannot make this unbounded.
-        for _ in range(65):
-            result = follower.poll_once()
-            if not result["bytes_read"]:
-                return result
-        return {**result, "notice": "Read limit reached; use /follow to continue"}
-    except SourceGap as error:
-        store.record_source_incident(str(path), follower.committed, str(error))
-        raise
 
 
 HELP = """Commands (also accepts: 'triage alerts', 'show network information',
@@ -277,7 +262,13 @@ class TerminalSession:
             )
 
     def plan(
-        self, message, context=None, schema=None, transport=None, max_input_bytes=None
+        self,
+        message,
+        context=None,
+        schema=None,
+        transport=None,
+        max_input_bytes=None,
+        system_prompt=None,
     ):
         """Validated task planning shared by terminal and GUI; executes nothing."""
         provider = self.runtime.provider
@@ -291,7 +282,8 @@ class TerminalSession:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
+                    "content": system_prompt
+                    or (
                         "You are Blue Cheese's terminal task planner. Return only a JSON object "
                         "without markdown or text outside the object. Choose one action: "
                         + ", ".join(CHAT_ACTIONS)
@@ -384,6 +376,23 @@ class TerminalSession:
             if content.startswith(("```json\n", "```\n")) and content.endswith("\n```"):
                 content = content.partition("\n")[2].removesuffix("\n```")
             plan = json.loads(content)
+            if (
+                isinstance(plan, dict)
+                and schema["properties"]["action"].get("enum") == ["answer"]
+                and plan.get("action")
+                in (
+                    "summarize",
+                    "explain",
+                    "status",
+                    "history",
+                    "report",
+                    "alerts",
+                    "triage",
+                    "network",
+                    "help",
+                )
+            ):
+                plan["action"] = "answer"
             validate(plan, schema)
         except (ValidationError, json.JSONDecodeError):
             raise ValueError(
@@ -435,7 +444,11 @@ class TerminalSession:
         )
         self.say("Scope: " + answer["scope"])
         self.say(answer["reply"])
-        self.last_result = {"task": action, "output": answer["reply"][:8192]}
+        self.last_result = {
+            "task": action,
+            "output": answer["reply"][:8192],
+            "citations": answer.get("citations", []),
+        }
 
     def execute(self, action, argument):
         if action in ("summary", "summarize", "explain"):

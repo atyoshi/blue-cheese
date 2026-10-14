@@ -1,3 +1,242 @@
+# Grounded investigations and readable analyst workflow — 2026-10-14
+
+Implemented the system-wide analyst readability and reliability increment. Chat
+uses the configured model for ordinary reading questions, short paragraphs/lists,
+case context and retrieval-bound citations. Offline answers and historical fixed
+templates have readable presentation blocks. Shared interpretation guidance is
+collapsed once; case-specific questions and actual analysis limits stay with the
+findings. Source coverage, UTC time windows, source incidents, advisory scores,
+failed-case recovery and per-request diagnostics are readable throughout the UI
+and Markdown exports.
+
+Targeted source/connection/time retrieval now filters before applying limits and
+feeds correlation and the independent countertest. Fact-binding regressions reject
+incorrect observable fields even with a valid retrieved citation. Fixed aliased
+schema constraints, UTC relabelling, overbroad source-incident attribution,
+unrequested chat actions, missing-target proposals and failed-run accounting.
+Migration 8 persists bounded request diagnostics independently of final reports.
+Model context/output bounds and a single budgeted schema/truncation correction
+preserve citation rejection and global call/time limits. Failed-case fallbacks
+retrieve the target first; timeout messages distinguish a configured limit from
+actual elapsed time.
+
+Verification: **210 Python tests passed**, **17 Chromium tests passed**, including
+14 reviewed macOS screenshots. Ruff, TypeScript/build, Prettier, pip consistency
+and whitespace checks passed. Initial JavaScript is **100.9 KiB gzip** (200 KiB
+budget). One Starlette test-client deprecation warning remains.
+
+Live Grain requests revealed failures beyond the original 60-second timeout:
+missing claim citations, schema aliasing, long independent-review latency and
+2,048-token output truncation. Earlier live chat responses passed format/citation
+checks; manual review also found UTC conversion and unsupported role-retry advice,
+now addressed in prompts/context and offline regressions. An attempt while disconnected from the required VPN
+hit connection timeouts; those failures do not measure inference latency. After
+VPN reconnection, evidence requests succeeded (39.8/13.4 seconds), followed by an
+assessment (201.9 seconds) that needed schema correction. The correction returned
+(111.9 seconds) but asserted `src_port` inconsistently with its retrieved source;
+the factual validator rejected it before model Falsifier review. Schema corrections
+now identify the failed schema rule without rejected values, with offline coverage.
+All three VPN-connected chat questions passed format and retrieval-citation
+checks (84.4, 33.4 and 27.8 seconds). Manual source review confirmed the summary's
+three supplied A-record DNS requests, converted UTC times, 116 client-bound flow
+bytes and 483-record snapshot. The answers reported the failed Investigator and
+distinguished completed flow countertesting from unexecuted model review.
+
+**No live end-to-end investigation completed successfully.** Provider reliability
+and free-prose semantic quality remain open validation work; passing fixtures do
+not establish detection accuracy or commercial readiness.
+
+Local verification artifacts are under ignored `build/verification/` (Python,
+browser and build logs plus isolated live state/request diagnostics). Live requests
+used an existing local normalized capture; no datasets/models were downloaded and
+no captures, credentials or operational transcripts are introduced by this commit.
+Provider configuration is process-local and must be reactivated after a server
+restart. Docker execution, other browser engines, screen-reader certification,
+human completion/time savings and sustained production capacity remain unverified.
+See [the workflow verification](ANALYST_WORKFLOW_VERIFICATION.md) for acceptance
+scope and the comparison with documented professional investigation workflows.
+
+Earlier entries below are historical; their counts and interface descriptions
+refer to the corresponding earlier revision.
+
+---
+
+# Single analyst interface — 2026-10-14
+
+Replaced the Streamlit console, presentation frontend, practice screens, and legacy
+web frontend with the React/TypeScript interface served by
+`bluecheese.interfaces.server`. `bluecheese gui` and default launch retain state
+and port selection. The README walkthrough uses the normal source and case UI.
+Existing CLI imports, SQLite evidence, investigation runtime, and report history
+remain supported. Earlier entries below describe retired frontend behavior.
+
+The interface includes light/dark themes, prioritized alerts, case findings,
+source observations, linked timeline/connection/record selection, real activity,
+contextual chat and explicit proposals, analyst decisions, exports, source settings,
+and diagnostics. Shared tokens, portal overlays, keyboard tabs, reduced motion,
+and bounded lazy-loaded assets replace the previous widget styling. Case IDs,
+filter/pagination persistence, source counters, protocol timeline totals, and native
+advice endpoint round trips have regression coverage.
+
+Verification: **179 Python tests passed**; **14 Chromium browser tests passed**.
+Ruff, TypeScript, Prettier, dependency consistency, and whitespace checks passed.
+Twelve reviewed macOS screenshot baselines cover both themes and responsive queues,
+case findings, and network views. Browser checks include rendered accessibility,
+contrast calculations, long text/IPv6, literal HTML, narrow drawers, unsaved forms,
+reduced motion, and a layout equivalent to 200% desktop zoom. Initial JavaScript
+is **100.4 KiB gzip** against a 200 KiB budget. A fresh temporary wheel installation
+served packaged assets, API, and health with empty initial state and no Streamlit.
+
+Docker Compose configuration validates; Docker build/execution remains unverified
+because the daemon is unavailable. No live model requests or operational evidence
+changes were made. Other browsers, assistive technology, human task completion,
+semantic accuracy, and detection quality remain unmeasured by these checks.
+
+---
+
+# README walkthrough verification — 2026-10-14
+
+Updated README telemetry types, current GUI labels, decision advice, offline
+capture/comparison instructions and test counts. Corrected stale quarantine help
+in the console. Followed the local workflow in isolated temporary state,
+including a fresh pinned installation, actual GUI/legacy HTTP startup, AppTest
+connect/investigate/save decision, terminal tasks, fixture and real PCAP conversion,
+offline comparison, bundle verification and stopped-state backup/restore/retention.
+189 tests passed with 79% coverage; Ruff, pip and whitespace checks passed.
+Docker configuration validates but the daemon is unavailable. No new live model
+requests; native decision-model execution remains pending. See the durable
+[README verification record](README_VERIFICATION.md) for exact scope and limits.
+
+# Investigation assessments and optional decision advice — 2026-10-14
+
+Implemented version-2 findings with separate activity assessment, impact, evidence
+limits, typed observations/inferences, contradictory citations and case-specific
+next checks. The model supplies one activity decision; software projects the
+legacy verdict. Compact model reports permit three claims/two checks. Historical
+version-1 reports and the one-call provider remain readable/compatible.
+
+Optional native `/v1/systemone` advice is disabled by default. GUI configuration
+and an explicit synthetic capability test are available; one bounded request per
+run uses already retrieved evidence. Scores remain uncalibrated and cannot change
+routing or analyst authority. Migration 7 persists scope, input references/hash,
+model/policy, usage, timing and failure/interrupted states through the store owner.
+Advice scope labels stay out of model context. DNS/HTTP/TLS context complements
+unchanged alert/flow interpretations, with bounded strings and no bodies in model
+inputs. GUI, contextual chat, Markdown and bundles include the new information.
+
+Added offline capture preparation and isolated matched comparison commands. See
+[assessment documentation](INVESTIGATION_ASSESSMENTS.md). Comparisons preserve
+snapshot digests and equal settings, alternate order and record per-arm timing
+variation. Human semantic reviews and analyst completion time remain unset until
+actually reviewed/measured. Missing native configuration is NOT_CONFIGURED;
+failed/incomplete/cancelled runs return a nonzero CLI status.
+
+Measured verification: `.venv/bin/pytest -q` outside the socket-restricting sandbox
+— **189 passed in 15.11 seconds**. Ruff and diff whitespace checks passed. Automated
+tests use synthetic inputs/mocked models and include persistence/restart, invalid
+scores, cancellation, unavailable endpoints, misleading advice, injected tools,
+retrieval-bound citations, unchanged raw evidence and no calls on refresh.
+
+Authentic capture processing: existing `bad.pcap`, SHA-256
+`40743e4d6c0e3de4222b8a4e81ae54ed571ac6accb7bb19c0cd81a14caf7ef55`,
+49,668,763 bytes. Installed Suricata 8.0.7 read 49,591 packets offline. EVE contains
+194 alerts, 342 flows, 503 DNS, 93 HTTP and 57 TLS records (1,189 supported), plus
+425 unsupported records. Capture/configuration/rule hashes and event timing are
+recorded in `/private/tmp/bluecheese-case-study-20261013/capture-final/capture-manifest.json`.
+Source/content corroboration matches the September 24 source page and incident
+reference in `docs/evaluator/capture_case.json`; original archive checksum and
+redistribution rights were not established. No capture/model/dataset downloads,
+packet transmission or operational-state changes occurred.
+
+Three initial live baseline attempts with the user's six-call/300-second/2,048-token
+profile all failed: incomplete provider output, a timeout, and contradictory
+activity/legacy-verdict fields. Artifacts:
+`/private/tmp/bluecheese-case-study-20261013/live-verified-comparison`.
+These failures led to the compact single-decision contract; they are not valid
+malicious-traffic findings. The corrective four-call pilot completed in **452.94
+seconds**, verdict **SUSPICIOUS**, with four successful model calls and six evidence
+queries. It cites outbound HTTP POSTs and curl/Go user agents while preserving
+unknown reputation, authorization and endpoint impact. The saved report rendered
+in AppTest with no exceptions; refresh kept one run and the report unchanged.
+Its offline bundle verified **22 referenced records** against the snapshot/retrieval
+trace. Artifacts: `/private/tmp/bluecheese-case-study-20261013/compact-pilot`.
+
+Pilot review exposed alert-heavy broad queries exhausting delivery bytes before
+available `/api/credentials` HTTP records. Model agents now prefetch one 20-record
+typed protocol slice when that protocol is already observed, within existing
+scope and retrieval budgets. A regression verifies that this reaches later HTTP
+records without sending oversized raw payloads. The first protocol-context
+repetition completed in **643.13 seconds**, verdict
+**SUSPICIOUS**, and surfaced `/api/credentials` and `/api/shell/agent`. Static review
+found an unsupported claim that response lengths were request payload sizes;
+that report is mechanically valid but not semantically accepted. The remaining
+repetitions were interrupted rather than counted as valid results. Artifacts:
+`/private/tmp/bluecheese-case-study-20261013/protocol-comparison`.
+
+All model-input paths now project HTTP `length` to `response_length_bytes`, without
+changing stored interpretations. Provider policy explicitly separates response
+lengths and URL paths from request payload contents or successful theft. The
+existing pilot bundle still verifies. Operator interruption now persists a
+cancelled run and a partial comparison index, with exit status 130.
+
+All three final live repetitions completed with **SUSPICIOUS** assessments,
+**4 successful model calls and 7 evidence queries each**. Elapsed times were
+**614.49 / 472.20 / 647.87 seconds** (median 614.49). They surfaced credential API
+POSTs and the agent-channel endpoint while retaining unknown endpoint impact,
+authorization and request contents. Their snapshot digests match. All three
+offline bundles verify, with **22 / 22 / 24 referenced evidence records**.
+Artifacts: `/private/tmp/bluecheese-case-study-20261013/semantics-comparison`;
+`comparison.json`, `comparison.md`, per-run reports/bundles and `semantic-review.json`.
+
+Static semantic review identified remaining method/status attribution errors in
+the first report and timeline/timezone attribution errors in the second. The
+third report's cited HTTP method/status/response-size observations align with the
+inspected source records; its causal hypothesis remains unverified. These are
+not consistently accurate autonomous malware findings. All three advised arms
+are NOT_CONFIGURED, so no native-advice effect was measured. Human review fields
+and analyst completion times remain unset.
+
+A deterministic protocol-observation table now presents actual retrieved HTTP
+methods, paths, response status and response length before the working hypothesis
+and assessed findings. New reports persist these facts; historical views derive
+only facts already retrieved for that run from its frozen snapshot. Narratives
+are labelled as unverified/model-assessed rather than promoted to source facts.
+The final case rendered in AppTest with GET /api/shell/agent → 101, 20 source rows,
+no exceptions, unchanged saved report and three runs before/after refresh.
+Source-table UI checks and the source-derived fact bundle regression passed.
+The reused EVE artifact SHA-256 is
+`d8a50fb4a442edbfc4062d3a65e3836040b73fe5c1bdcd4701fe65fbb5143460`;
+generated EVE identities/statistics can differ between separate sensor conversions.
+
+Native decision-model live validation and any genuine advice-effect comparison
+remain pending a compatible configured model. The case study surfaces malicious indicators but does not establish an automatic
+MALICIOUS classification or consistent narrative correctness. Analyst verification
+and latency reduction remain professional release gates. No detection-accuracy,
+calibration or analyst time-saving claim follows from these checks.
+
+---
+
+# Next session — advisory decision-model assessment — 2026-10-13
+
+Documentation only: [decision-model research](DECISION_TRIAGE_RESEARCH.md) now
+proposes advice for analysts and a bounded, labelled upstream model assessment
+for the Investigator as the first application. Show suggested review importance,
+uncalibrated option scores, scope, evidence references and important unknowns;
+preserve insufficient evidence. The Investigator may disagree and must ground
+findings in actual run retrieval. Two models reading the same records do not
+provide independent corroboration. Analyst decisions and application controls
+remain separate; scores alone cannot start work, reorder/suppress alerts, close
+cases or authorize actions. Routing automation remains a separate future evaluation.
+
+Next session should check native decision-model availability through the existing
+`~/bc.json` configuration without printing credentials. Availability is not yet
+verified. Compare investigations with and without advice for analyst usefulness,
+finding quality, unsupported conclusions and anchoring, including confidently
+wrong scores, missing telemetry, correlated records, disagreement and unavailable
+classifiers. Verify retrieval-grounded citations and no work on navigation.
+This follow-up adds no APIs, model downloads or runtime behavior; the roadmap
+remains incomplete. Existing verification records below are unchanged.
+
 # Current verification — user's LLM configuration — 2026-10-13
 
 At the user's request, loaded `~/bc.json` through the existing validated provider
@@ -81,7 +320,7 @@ thirty practice records, six snapshot records and five queries/nineteen delivere
 records per run, retained analyst history, and an empty parent operational
 workspace. The temporary review server was restarted at http://127.0.0.1:8504;
 saved findings, decision and all checkpoints reappeared. The operational server
-was not changed. See [the review record](GUIDED_INVESTIGATION.md#review-record--2026-10-13).
+was not changed. See the retired guided-investigation review record.
 
 Firefox's initial `cgWindowNotFound` blocker is resolved. This short manual
 review does not establish comprehensive accessibility, long-session reading
@@ -145,7 +384,7 @@ received a completed visual review. Desktop/narrow layouts and reading position
 remain unverified. The isolated review server was stopped; the operational server
 and database were not restarted or used for this review. No live model call was
 made. The separate user-initiated walkthrough using existing llama.cpp settings
-is documented in [GUIDED_INVESTIGATION.md](GUIDED_INVESTIGATION.md).
+is documented in the retired guided-investigation document.
 
 Restart the app process after upgrading cached runtime code, then open **Practice
 investigation**. This establishes synthetic workflow behavior, not detection

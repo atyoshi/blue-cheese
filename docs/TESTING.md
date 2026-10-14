@@ -1,34 +1,53 @@
 # Verification scope
 
-Run using the pinned development environment:
-
 ```bash
+.venv/bin/python -m pip install -r requirements-dev.lock
 .venv/bin/python -m pytest -q
 .venv/bin/ruff check src tests
 .venv/bin/python -m pip check
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+npm test
 ```
 
-The suite covers legacy CLI/PCAP/SQLite/web behavior, presentation evidence,
-normalization, ingestion transactions, checkpoints/gaps, Investigator/Falsifier,
-retrieval budgets/citations, Streamlit interactions and the additional local
-operation contracts. Tests use temporary paths, offline fixtures and deterministic
-thread events rather than sleep-based polling or real model/network calls.
+Python checks cover CLI/PCAP/SQLite behavior, evidence normalization and integrity,
+ingestion, source continuity, single-writer ownership, snapshots, provider budgets,
+retrieval-bound citations, reporting, backup/restore, and the production analyst
+API. Tests use temporary state, offline fixtures, mocked models, deterministic
+polling, and synchronization events. Local socket tests require socket permission.
 
-New coverage includes competing writers/symlink aliases, worker ownership and
-queue saturation, provider-versus-ingestion progress, cooperative cancellation,
-startup cleanup, old-schema upgrade/future-version rejection, fixed interpretation
-snapshots, successor history, interrupted/failed/incomplete statuses, delivery
-byte caps, role grouping/correlation exclusions, offline bundle tampering, saved
-report/background UI interactions and backup/restore report/evidence round trips.
+Browser checks start the ordinary packaged server with a temporary state directory
+and import an example through its normal API. They exercise the real alert-to-case
+journey, evidence, activity, decisions, chat, exports, revisions, source controls,
+theme persistence, and narrow navigation. A test-only response override stresses
+long labels, IPv6, and literal HTML; it adds no application routes or modes.
 
-The latest macOS/Python 3.13 verification passed 71 tests, including local
-Suricata PCAP and actual Suricata Unix-stream output, fragmented records,
-disconnect/partial-tail handling, spool limits/restart, socket ownership, GUI
-input switching, visual filter/reset behavior and short launcher defaults.
-The socket tests need permission to bind local Unix sockets; a restricted agent
-sandbox may deny this even though a normal native launch supports it.
+Both themes are checked at 390, 768, 1280, and 1440 CSS pixels. Fourteen reviewed macOS
+screenshots cover queues and case layouts. Axe checks cover page, drawer, tooltip,
+chart, and chat states. Additional calculations check text, button, status, chart,
+and control contrast. Reduced-motion and a 720px viewport equivalent to a 1440px
+window at 200% zoom are exercised. Screenshot baselines are platform-specific;
+review rendered changes before using `npm run test:update` on another platform.
 
-The suite does not establish semantic model accuracy, provider hard preemption,
-sustained ingestion capacity, all rotation policies or Docker execution. SHA-256
-checks are not signatures. Current snapshot/bundle interpretation checks use the
-shipped canonical parser; historical parser version archives remain deferred.
+The production build checks TypeScript and a 200 KiB gzip initial-JavaScript
+budget. Native and Docker use the same runtime lockfile. A fresh temporary virtual
+environment installs the wheel and verifies packaged assets, API startup, health,
+empty initial state, and dependency consistency without Streamlit.
+
+These checks do not establish screen-reader certification, cross-browser parity,
+semantic model correctness, detection accuracy, sustained ingestion capacity, or
+Docker execution. The Docker daemon is unavailable; Compose configuration validates.
+
+The analyst accuracy suite uses reviewed synthetic facts, including deliberately
+incorrect assertions attached to valid citations. It covers targeted retrieval,
+UTC projection, immutable evidence, source-specific gaps, schema independence,
+failed-request diagnostics and constrained conversational reading. See
+[the workflow verification](ANALYST_WORKFLOW_VERIFICATION.md) for what these checks
+establish and what still requires semantic review.
+
+Measured on macOS/Python 3.13: 210 Python tests and 17 Chromium tests passed.
+TypeScript, Ruff, Prettier and dependency checks passed; initial JavaScript is
+100.9 KiB gzip. Live-provider results and their limits are recorded in
+[session status](SESSION_STATUS.md).

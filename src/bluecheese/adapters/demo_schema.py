@@ -69,6 +69,14 @@ MIGRATIONS = {
     4: RETENTION_SQL,
     5: GENERATIONS_SQL,
     6: WORKSPACE_SQL,
+    7: """
+CREATE TABLE IF NOT EXISTS decision_advice (
+    run_id VARCHAR PRIMARY KEY, snapshot_id VARCHAR, assessment VARCHAR);
+""",
+    8: """
+CREATE TABLE IF NOT EXISTS provider_diagnostics (
+    run_id VARCHAR PRIMARY KEY, activity VARCHAR);
+""",
 }
 
 
