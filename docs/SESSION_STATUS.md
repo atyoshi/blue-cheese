@@ -1,4 +1,54 @@
-# Matched live campaign running in the background — 2026-10-15 UTC
+# Matched campaign diagnosed and source-reviewed — 2026-10-15 UTC
+
+The 24-trial campaign at `~/bluecheese-evaluations/20261015-matched-0543/`
+finished at 08:10:42 UTC (02:10 Denver). Offline review now reconciles all 90
+requests: 88 returned responses, two native provider parser HTTP 500 errors and
+no recorded connection timeout. Baseline outcomes: 5 completed / 4 incomplete /
+3 failed. Candidate: 1 completed / 7 incomplete / 4 failed. The original campaign
+artifacts are preserved; their mechanical phase still says pending source review.
+This dated review supersedes that phase for the offline source audit only.
+
+All eleven incomplete runs hit local context capacity with time/calls remaining:
+four baseline accumulated transcripts exceed 64 KiB; seven candidate tool replies
+cannot fit their metadata reservation. All seven candidate boundaries reproduce
+offline against recorded query results. The generic budget fallback obscures the
+cause and discards final-report visibility of valid intermediate Investigator
+work. Four other runs fail schema/JSON, one same-claim fact/citation binding, and
+two provider parser compatibility. These are separate from transport failures.
+
+Reviewed both claims and hypothesis/impact/completeness/checks in all six completed
+reports against exact cited source records. All 22 explicit facts match; all 17
+exported bundles verify with matching frozen membership and reconstructed original
+raw bytes. Two completed reports need limited wording/coverage correction; four
+have material interactive-control, execution/authorization, malicious-staging or
+countertest defects. None is accepted unchanged under the full review rubric.
+This is not ground-truth detection validation. Candidate promotion gates fail.
+
+Source audit also found relevant flow summaries outside logged-timestamp snapshot
+membership and a raw truncated fileinfo record excluded by the importer. Missing
+from a report does not establish absent from the archived source. Normal-GUI
+review and human usefulness/time measurement remain pending; no analyst decision
+or model call was made for this review.
+
+See [full diagnosis and six source reviews](LIVE_LLM_MATCHED_REVIEW.md). Ignored
+`build/verification/matched-review/` contains the read-only audit script, checked
+hashes, machine audit and private source extracts. Verified command:
+`.venv/bin/python build/verification/matched-review/audit.py`. Application code
+is unchanged; no new full application test-suite result is claimed.
+
+The [master plan recovery track](../Blue_Cheese_Master_Implementation_Plan.md#matched-campaign-recovery-track--october-15-2026)
+integrates R01–R07 with existing W03/W07/W08/W10–W13/W18/W22/W24–W26/W29/W35.
+Next: (1) context fit and typed stop reporting, (2) versioned coverage/session
+semantics, (3) assessment/correction allocation, then source-supported findings,
+provider compatibility, normal analyst recovery and a fresh gated evaluation.
+Planning/docs changes are uncommitted. Further live experiments require a fresh
+explicit allowance; do not reuse the finished campaign's remaining call capacity.
+
+Earlier handoffs below are historical.
+
+---
+
+# Matched live campaign background launch — 2026-10-15 UTC
 
 The user authorized the 14-hour / 24-investigation / maximum-144-provider-request
 campaign, then explicitly requested independent background continuation through

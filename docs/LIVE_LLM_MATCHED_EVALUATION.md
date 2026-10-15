@@ -1,12 +1,27 @@
-# Matched reliability evaluation — authorized and running
+# Matched reliability evaluation — finished and source-reviewed
+
+The saved campaign finished all 24 scheduled trials at 08:10:42 UTC on October 15,
+consuming 90 requests. Baseline completed 5/12; candidate completed 1/12. All eleven
+incomplete runs stopped at local context limits; the ledger records two provider
+parser HTTP 500 failures and no transport timeout. Offline source review and
+integrity checks are recorded in [the campaign review](LIVE_LLM_MATCHED_REVIEW.md).
+No completed report is accepted unchanged across the full review rubric, and
+candidate promotion gates fail. Normal-GUI and human usefulness review remain
+pending. Original artifacts remain unchanged.
+
+The protocol below records the executed experiment. The
+[master plan recovery track](../Blue_Cheese_Master_Implementation_Plan.md#matched-campaign-recovery-track--october-15-2026)
+defines future work and separately bounded evaluation; no further live work is
+authorized by these planning documents.
 
 The user authorized **14 hours wall time, 24 investigations and at most 144 model
 requests**, then explicitly requested background continuation through Codex usage
-interruptions, with source review later. The current durable campaign is
+interruptions, with source review later. The finished durable campaign is
 `/Users/yoshi/bluecheese-evaluations/20261015-matched-0543/`; its first request was
 2026-10-15 05:44:54.744780 UTC and its fixed deadline is 19:44:54.744780 UTC.
-Read its live `status.json` and ledger for actual progress; source review remains
-pending. The older campaign allowance remains expired. Do not send this document, evaluator
+Read its `status.json` and ledger for mechanical outcomes; the dated review above
+supersedes the original pending-source-review phase. The older campaign allowance
+remains expired. Do not send this document, evaluator
 notes, source answers or scenario labels to either model.
 
 ## Freeze and preflight

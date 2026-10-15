@@ -1,5 +1,12 @@
 # Multiagent investigation next steps after the live rerun
 
+Current priority (2026-10-15): the matched 24-trial campaign has finished and its
+source review found a completion regression, local context exhaustion and report
+support defects. Use [the measured review](LIVE_LLM_MATCHED_REVIEW.md) and the
+[master plan recovery track](../Blue_Cheese_Master_Implementation_Plan.md#matched-campaign-recovery-track--october-15-2026)
+for coordinated next work. The proposals below are history from the earlier
+six-trial rerun; they do not override that track or authorize new live requests.
+
 Evidence: [live rerun results](LIVE_LLM_RERUN_RESULTS.md), plus the retained
 six-trial campaign at `~/bluecheese-evaluations/20261015-live-rerun-0158/`.
 Only one pilot completed mechanically; its semantic review still has
@@ -12,9 +19,10 @@ bounded deterministic roles, retrieval ledger and existing architecture.
 The first offline increment is implemented and verified: output guide, typed fact
 catalog/delivery checks, flexible call allocation, Falsifier guidance, and opt-in
 local rejection retention. See [behavior and verification](INVESTIGATION_RELIABILITY.md).
-Live benefit is still unverified. A sanitized parser diagnostic packet and a
-separately authorized [24-run matched evaluation](LIVE_LLM_MATCHED_EVALUATION.md)
-are prepared. The sections below retain the original proposals and observations;
+The subsequent [24-run matched evaluation](LIVE_LLM_MATCHED_EVALUATION.md) did not
+establish a live benefit; its results are reviewed in the current priority above.
+The sanitized parser diagnostic remains an operator-review proposal, not a sent
+message. The sections below retain the original proposals and observations;
 the implementation document specifies their actual delivered behavior.
 
 ## 1. Make the output contract easier for both model roles to follow

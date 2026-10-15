@@ -23,6 +23,23 @@ reference. User value must be measured through task completion, time saved and
 finding quality; interface completion does not establish enterprise readiness.
 The broader architecture below remains the destination, not the immediate scope.
 
+### Reliability and finding-quality priority — October 15, 2026
+
+The matched 24-trial live campaign finished, but the frozen candidate completed
+only 1/12 investigations versus 5/12 for baseline. All eleven incomplete runs
+stopped at local context-size boundaries. Source review of all six completed
+reports found supported observations alongside coverage/wording defects and
+material unsupported extensions; none is accepted unchanged under the complete
+review rubric. See [the measured diagnosis](docs/LIVE_LLM_MATCHED_REVIEW.md).
+
+The immediate delivery slice is the coordinated [matched-campaign recovery track](#matched-campaign-recovery-track--october-15-2026)
+in Section 24. Treat context, evidence coverage, bounded allocation, report support
+and analyst recovery as one alert-to-decision workflow. These work packages refine
+the existing broker, provider, Falsifier, reports and GUI; they introduce no agent
+framework, repository restructure, model/dataset downloads or autonomous response.
+They are planned, not implemented by this addendum. Broader deployment and research
+milestones remain open. Passing structural tests alone cannot close this track.
+
 ### Product thesis
 
 The useful output is a supported answer to a scoped security question: what happened, which entities and observations support it, what alternative explanation was checked, what remains unknown, and what the analyst should inspect next. Blue Cheese is inspired by Security Onion's sensor-to-investigation workflow and by multi-source SIEM collection patterns. It will consume outputs from tools such as Suricata and Zeek without requiring a full Security Onion, Malcolm or Elasticsearch installation. It will measure whether this smaller deployment meets its own workload rather than claim feature parity or general superiority.
@@ -912,6 +929,231 @@ No calendar duration is promised before repository inventory. Work packages shou
 | W35 | Profile sustained workloads and harden release | Supported workload envelope and runbooks are published |
 
 W03-W13 form the offline vertical slice. W14-W20 deliver the live demonstration and dependable packaging. W21-W30 establish reproducibility and research value. W31-W35 are selected by measured need; they are not mandatory prerequisites for demonstrating the core thesis. If an existing module already satisfies a package, verify and record it rather than rewrite it.
+
+### Matched-campaign recovery track — October 15, 2026
+
+This is the current prerequisite for dependable model-assisted analyst work within
+M4/M5, alongside the alert-to-decision product priority. It does not mark M3–M8
+complete or replace the remaining operational/authentication release gates.
+[Source review and reproducible audit](docs/LIVE_LLM_MATCHED_REVIEW.md) establish
+the starting defects. Preserve the original frozen campaign and all failures in
+its denominator. No faster-result or promotion claim follows from local early
+failure. Runtime code is unchanged by this planning update.
+
+| Slice | Existing packages / owners | Deliverable and acceptance evidence | Depends on |
+| --- | --- | --- | --- |
+| R01 Context and stop contracts | W07/W11/W22; `adapters/agent_provider.py`, `agents/investigator.py`, `agents/reporting.py` | One serialization-based fit planner; all eleven boundary patterns covered offline; explicit stop category, completed stages and actual resource use survive API/export | Measured diagnosis (done) |
+| R02 Evidence coverage and session context | W03/W08/W12/W25; `adapters/suricata.py`, `adapters/duckdb_store.py`, case/snapshot services | Distinguish source, accepted, snapshot, retrieved and role-delivered coverage; versioned bounded treatment of late flow summaries and unsupported fileinfo; old snapshots unchanged | R01 diagnostic contract |
+| R03 Assessment and correction allocation | W11/W22; provider loop and schemas | Default six-call policy can reserve assessment/correction without sacrificing independent review; recorded three-query-then-invalid-final patterns covered; local rejection remains strict | R01 fit planner; R02 coverage interface |
+| R04 Supported findings and useful Falsifier | W10/W11/W12/W25; `agents/findings.py`, Investigator/Falsifier, Reporter | Source observations rendered from validated fields; inference/impact qualifications agree across report sections; executable alternative tests distinguished from proposals; all six reviewed report defects covered | R02/R03 |
+| R05 Provider response-path compatibility | W22; existing provider adapter/capability profile | Offline tool-to-final/correction transition checks and sanitized operator diagnostic; any live compatibility experiment has a separate frozen protocol and request allowance | R01/R03 for final validation; offline preparation may start earlier |
+| R06 Analyst recovery through the single GUI | W13/W18/W24/W25; runtime/API, `interfaces/server.py`, `frontend/` | Named target/snapshot, precise incomplete/failed cause, provisional versus accepted findings, executed versus proposed checks, and explicit successor recovery work in normal cases/export | R01–R04 |
+| R07 Fresh evaluation and usefulness gate | W26/W29/W35; comparison runner and evaluator-only review | Fresh matched source review and normal-GUI acceptance meet predeclared gates; failures retained; useful analyst decisions and human time measured separately | R01–R06 offline gates |
+
+R01 is first because a provider must never advertise a read it cannot deliver.
+R02 and the offline part of R05 can then be prepared in conjunction; R03 consumes
+the same context and coverage contracts. R04 and R06 complete that vertical slice.
+R07 measures the integrated behavior. This dependency grouping is not a request
+to add independently executing application agents or extra model calls.
+
+#### R01: fit the whole next turn before offering a tool
+
+Keep the existing 64 KiB message limit, broker row/byte bounds, request/time limits
+and six-request default while repairing accounting. Serialize the complete next
+message list with its actual JSON escaping, assistant/tool envelopes, budget
+metadata, candidate assessment, compact schema guide and reserved final/correction
+turns. Measure full HTTP payload size separately from the current message-list
+limit; schemas/tools also have provider cost. Do not silently redefine that limit
+or raise it to hide a regression.
+
+Build a bounded, deterministic role context from a selected set of observations,
+rather than append unbounded duplicated records/catalogs/audit metadata. Keep the
+complete broker audit outside model context and send a compact query receipt.
+Prefer exact typed values with one serialization over duplicating every field.
+Deduplicate context deliveries by evidence ID without collapsing occurrence IDs
+or changing raw evidence. Prioritize selected evidence, cited facts and material
+counterevidence, then diverse relevant host context. Reserve actual room before a
+request can return a tool call. If no minimal reply fits, move to an assessment
+using delivered evidence or stop with CONTEXT_CAPACITY before offering that tool.
+A required cited/counterevidence set that cannot fit must fail visibly.
+
+Role-delivery authority must describe what the current assessment context actually
+contains, including any evicted/reintroduced evidence. A broker retrieval, a hash
+or an omitted record's ID alone does not authorize a factual citation. Persist
+delivered/omitted IDs or bounded verifiable delivery manifests so audit can check
+this without retaining complete prompts or secrets. Rebuild contexts under a
+fixed policy/version; do not let a model's text choose its access boundary.
+
+Use typed reasons for context capacity, evidence-call cap, provider-call cap,
+cooperative elapsed time, cancellation, schema/fact/citation rejection, provider
+parser error and transport failure. Preserve historical status compatibility while
+showing the precise reason and remaining resources in CLI/API/Markdown/GUI.
+Persist completed-stage metadata and any retained intermediate assessment as
+provisional diagnostic work, never as an accepted final report. Do not expose raw
+rejected model output through ordinary APIs. Test context exhaustion after a valid
+Investigator and before/during Falsifier without losing the execution audit.
+
+R01 offline acceptance uses sanitized synthetic equivalents of the four baseline
+growth patterns and seven candidate metadata failures. Include a single-record
+read at the boundary, ASCII/Unicode escaping, long URLs, many returned IDs,
+candidate handoff, correction guides, an oversized required set and context
+replacement. Transport assertions must establish no request exceeds its limit,
+no unusable tool option is offered, no omitted/evicted citation becomes valid,
+and final/review capacity remains real. This is not proof of live-model success.
+
+#### R02: explain which evidence the run could see
+
+Represent source ingestion, accepted event types, frozen membership, broker
+retrieval, current role delivery and inspected claim support as distinct stages.
+Counts must name their denominator. Freeze the relevant coverage provenance for
+the run; mutable workspace quarantine totals are separately labelled. Distinguish
+unsupported types from malformed input and a bounded empty result from absent
+source telemetry. Preserve source-health gaps and query truncation in reports.
+
+Resolve the late-summary contract explicitly: current ±300-second top-level EVE
+timestamps omit flow summaries whose recorded activity overlaps the case window.
+Design a bounded same-source/sensor/flow-and-endpoint association using observed
+flow start/end when available, with ambiguity/whole-flow-byte qualifications. For
+new snapshots, version and show the membership policy and enforce member/query
+caps; for existing cases offer an explicit successor/revision. Never silently
+expand a run snapshot, query outside it during investigation, rewrite old members
+or assign whole-flow counters to just the selected time window. Missing/invalid
+intervals retain an explicit limitation. If membership changes, it is a different
+experiment from the original campaign and requires a matching baseline snapshot.
+
+Evaluate a small additive Suricata `fileinfo` interpretation for filename,
+state/gaps, size, stored flag and hashes only when present. Keep exact raw bytes
+and existing alert/flow normalization; new interpretations/projections need a
+version and compatibility tests. TRUNCATED/unstored/file-name-only evidence cannot
+prove full-file integrity, execution or compromise. Expose bounded HTTP redirect
+targets and relevant embedded alert protocol fields with provenance when useful;
+an announced redirect is not a confirmed followed connection. Reuse the existing
+normalizer/broker; no new sensor, dataset or unrestricted raw-log model channel.
+
+Offline gates cover late logged summaries with activity inside the window, long
+flows crossing the window, reverse-direction alerts, reused flow IDs across source
+contexts, missing endpoints/times, unsupported versus malformed records, truncated
+fileinfo and absent hashes, historic snapshot/export compatibility, and unreturned
+evidence remaining uncitable. Additive schema changes use the existing checksummed
+migration path only if persistence requires them.
+
+#### R03: spend calls on an assessment early enough to correct it
+
+Evaluate a default policy that reaches the Investigator's first assessment by its
+third request at the latest, retaining its fourth for one shared correction and
+two calls for independent Falsifier review. Reduce/reuse redundant reads before
+adding calls. Falsifier may assess immediately from delivered evidence to retain
+a correction, or spend a bounded read and accept that no correction remains;
+the UI/audit must state the actual choice. Unused calls may transfer under the
+existing global cap. Never call a reserved stage executed merely because it had
+capacity, or skip independent review to improve a completion number.
+
+Use one compact schema contract throughout tool-capable, final and correction
+turns. A guide delivered only on the last turn is insufficient evidence of format
+reliability. Test array/string mismatches, overlong limits, too many facts, invalid
+JSON with finish_reason=stop, missing same-claim fact citation, and a correction
+that introduces a second defect. Retain strict full revalidation, one shared
+correction per role and fatal unseen/out-of-scope citations. Do not silently clip
+prose, coerce conflicting facts, repair arbitrary JSON or relax schema limits.
+Publish denied exploration and remaining independent-review capacity.
+
+#### R04: separate source observations, inference and countertests
+
+Render observed method/path/status/byte/time facts from validated evidence handles
+and source-derived fields; do not treat a model-selected subset of two fact
+bindings as validation of every sentence. Keep claim-level citations and qualified
+model inferences with their support/limits. Align hypothesis, activity assessment,
+impact and recommendations: a cautious impact paragraph cannot excuse unsupported
+execution, interactive control, authorization, theft or C2 language elsewhere.
+If the claim contract changes, version it and retain old-report readability.
+
+Retain sensor signatures as attributed observations; multiple signatures or both
+roles reading one record are not independent corroboration. Keep flow counters,
+HTTP response length, fileinfo size and application upload amounts distinct.
+Finding support review must include uncited clauses, source coverage, timestamps,
+direction, hypotheses and next-check rationale. A deterministic phrase filter or
+another model's agreement is not proof of semantic truth.
+
+Preserve the current zero-byte-flow check as one possible test, but select further
+bounded tests according to the actual hypothesis. A test states the alternative,
+typed query, required source, coverage and result as contradicted/not observed/
+not available, plus how it affects the assessment. Rechecking whether already
+cited POSTs exist is not a useful disconfirmation of their intent. Authorization
+requires authorization evidence; no such tool may be invented. In that case show
+the unavailable test and a concrete analyst/endpoint/ITSM next step. Distinguish
+the software check, model review, returned counterevidence and future proposal in
+JSON, Markdown and the normal GUI. Correct file-creation/hash-versus-execution
+reasoning and record-time-versus-activity-time qualifications in shared behavior.
+
+Offline acceptance contains generalized equivalents of all twelve reviewed
+claims and six reports' hypothesis/impact/recommendation defects, with positive
+supported examples as well as negative cases. Keep evaluator judgments and raw
+live evidence out of production prompts and committed fixture data. Source-based
+review of fresh live outputs remains necessary after these tests pass.
+
+#### R05: establish provider-path compatibility separately
+
+Prepare a sanitized diagnostic for the existing model/operator containing only
+the known parser message, actual timings, response mode, schema/request hashes
+and model/template identifiers when available. No operator message is sent by
+this plan. Test the existing adapter offline for tool-to-final and tool-to-
+correction transitions, parser HTTP 500, refusal, truncation, malformed JSON and
+transport interruption. Preserve all actual requests and failures in the ledger.
+
+If live work is needed, freeze a small transition/capability experiment using the
+same endpoint/model/settings first. A JSON-object versus strict-schema comparison,
+backend/template change or retry policy is a separate controlled experiment,
+with common local validation and matched budgets. No silent fallback, blanket
+HTTP retry, automatic model substitution or settings change belongs to recovery.
+Network probes do not measure model-format compatibility. Separate connectivity
+failures from inference latency and parser/validation failures.
+
+#### R06–R07: finish the analyst path and measure it
+
+Connect R01–R04 to the single existing GUI and CLI. On failed/incomplete cases show
+the actual stop reason, completed roles and provisional work without simulated
+progress; offer a concrete scoped successor proposal when a different snapshot or
+new evidence is needed. The normal confirmation executes that new investigation.
+Reading, refresh, reviewing citations and export must start no work. Keep analyst
+disposition Open until the analyst explicitly decides otherwise. Verify normal
+completed/failed/incomplete cases, source coverage, cited raw inspection, actual
+versus proposed checks, analyst decision/history and exported explanation.
+
+Before live requests, run relevant focused regressions, the required Python and
+browser suites, lint/build/format checks and bundle/legacy compatibility checks.
+Freeze source, schema/prompt/context policy, dependencies, evidence, snapshot
+membership, settings and budgets only after those pass. Add no live-case-specific
+verdict rules or source-answer hints. Local context fixes and membership/projection
+changes should be evaluated as separate named increments so their effects are
+inspectable; the final integrated candidate also needs a matched comparison.
+
+Proposed next live sequence: a separately authorized four-investigation smoke
+phase (one per archived seed, at most 24 requests and four hours), with stop-on-
+recurring-boundary rules, followed only after review by a separately authorized
+24-investigation baseline/candidate campaign (three repetitions, at most 144
+requests and 14 hours). Each phase has a fixed deadline and fresh output/state;
+no failed trial is replaced and a restart never renews allowance. These are plans,
+not authorization to consume remaining requests in the finished campaign. Keep
+the original 24-trial experiment immutable. If R02 changes scope, both arms must
+receive the same new versioned membership, and results must be distinguished from
+the original recovered-snapshot campaign.
+
+Retain the existing full-campaign promotion floor: at least 10/12 candidate runs
+complete and pass source-semantic review, at least two per seed, no decline in
+supported completions against matched baseline, intact evidence/bundle checks,
+and no lost material counterevidence or allocation regression. Review every
+completed report against cited source records, qualify proposed checks and
+publish all failures/omissions. Preserve failure denominators; paired latency
+uses only pairs passing semantic review with subset size stated. No invented
+elapsed-time penalty or statistical-significance claim from this small sample.
+
+Once this gate passes, measure a small-security-team analyst's actual ability to
+move from alert to an explained, evidence-backed decision. Record task completion,
+time, additional evidence needed and finding corrections against the existing
+manual workflow; model runtime is not human time saved. Establish an operator-
+reviewed supported-use boundary before broader access, deployment or detection-
+quality claims. Authentication, sustained capacity and Docker/platform gates
+remain required for their release profiles, even if this track passes.
 
 ### One limited Codex session
 

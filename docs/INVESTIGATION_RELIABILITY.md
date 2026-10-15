@@ -2,7 +2,13 @@
 
 Implemented after the [six-trial live rerun](LIVE_LLM_RERUN_RESULTS.md), preserving
 strict validation and the existing Investigator/Falsifier provider protocol.
-These changes have offline coverage; live reliability and latency are unmeasured.
+These changes have offline coverage. The subsequent matched live campaign completed
+only 1/12 candidate investigations versus 5/12 baseline; all seven candidate
+incomplete runs hit tool-delivery context capacity. See
+[the diagnosis and source review](LIVE_LLM_MATCHED_REVIEW.md) and the
+[master plan recovery track](../Blue_Cheese_Master_Implementation_Plan.md#matched-campaign-recovery-track--october-15-2026).
+The behavior below describes the implemented increment, not a successful release
+gate. Application fixes to the measured regressions remain planned.
 
 ## Behavior
 
@@ -84,6 +90,6 @@ Falsifier query. This measures control flow, not real-model reasoning or accurac
 **278 Python tests and 18 Chromium tests passed**, along with Ruff and whitespace
 checks. One existing Starlette test-client deprecation warning remains.
 
-See [matched live evaluation](LIVE_LLM_MATCHED_EVALUATION.md) for the separately
-authorized 24-run campaign and semantic release gates. No failure penalty is used
+See [matched live evaluation](LIVE_LLM_MATCHED_EVALUATION.md) for the completed
+24-run campaign and unmet semantic release gates. No failure penalty is used
 as a latency release gate. Human task timing and detection accuracy remain absent.

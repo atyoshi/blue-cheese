@@ -1,3 +1,24 @@
+# Current priority: matched-campaign recovery — 2026-10-15
+
+The 24-trial live campaign finished with 5/12 baseline and 1/12 candidate mechanical
+completions. Eleven incomplete runs hit local context-size boundaries. Source
+review of six completed reports found two needing limited corrections and four
+with material semantic defects; none passes the full review unchanged. All 17
+bundles verify and all 22 explicit facts match. No detection-accuracy, accepted-pair
+latency or human time-saving claim follows. See
+[measured diagnosis](docs/LIVE_LLM_MATCHED_REVIEW.md).
+
+The master plan now coordinates an R01–R07 recovery track inside existing work
+packages: context fit/typed stops, evidence coverage and session snapshots,
+assessment/correction allocation, supported findings and useful countertests,
+provider compatibility, analyst recovery, and fresh matched evaluation. These are
+planned changes, not application implementation. See the
+[track and dependencies](Blue_Cheese_Master_Implementation_Plan.md#matched-campaign-recovery-track--october-15-2026).
+Use the same bounded broker, provider protocol and single normal GUI. Do not add
+frameworks, silently change budgets or backfill historical snapshots/reports.
+
+Earlier increments follow as implementation history.
+
 # Analyst interface upgrade — 2026-10-14
 
 One React/TypeScript GUI now replaces the Streamlit console, presentation frontend,
@@ -72,12 +93,14 @@ shared deployment and commercial/detection-quality validation remain deferred.
 | W25 | Completion status independent of verdict; intent/endpoint-impact qualifiers and uncalibrated confidence label. Full disposition policy/evaluation pending. |
 
 Next dependencies:
-1. Individual authentication, role enforcement, session controls and verified shared
+1. Complete the coordinated reliability/finding-quality recovery track above and
+   demonstrate the alert-to-decision workflow with source-supported findings and
+   truthful failure recovery. Further live trials need a fresh bounded allowance.
+2. Individual authentication, role enforcement, session controls and verified shared
    deployment for the selected single-customer, multiple-analyst SOC target.
-2. Live endpoint/model compatibility, semantic claim validation and legally usable
-   labelled detection-quality evidence; no accuracy claim follows from synthetic tests.
 3. Sustained ingestion/overload, sensor drop monitoring, spool lifecycle management,
-   Docker execution and remaining master-plan acceptance criteria.
+   Docker execution and remaining master-plan acceptance criteria, plus legally
+   usable labelled detection-quality evidence before any accuracy claim.
 
 Requested CLI follow-up (2026-10-12): evidence-source management. Add a local
 system-info view showing the active source, persisted import provenance, database
