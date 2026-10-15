@@ -1,3 +1,44 @@
+# Main-branch fixes and next live campaign handoff — 2026-10-14
+
+The progressive-evaluation fixes and their regression coverage are being landed
+on main together with the prerequisite scoped-comparison support. See
+[LIVE_LLM_RERUN_HANDOFF.md](LIVE_LLM_RERUN_HANDOFF.md) for the next agent's
+step-by-step plan, durable input paths, exact command, budgets, acceptance checks
+and user-ready authorization prompt. No new live requests were made for this
+handoff. The prior allowance is expired; submitting that prompt authorizes a
+fresh bounded campaign. Captures, provider secrets and operational state stay
+outside Git. The recovered campaign is preserved as a historical experiment.
+
+---
+
+# Progressive real-traffic evaluation — 2026-10-14
+
+Four authorized Malware Traffic Analysis captures passed offline processing,
+raw preservation, idempotent reimport and record reconciliation. Three live Qwen
+runs failed on citation/format boundaries; the fourth started but its final
+outcome was lost when temporary artifacts/processes disappeared during an
+environment interruption. The three-hour wall-clock allowance expired. No
+accepted live investigation or detection-accuracy claim follows from this campaign.
+
+Recovered captures have matching original ZIP/PCAP hashes and durable evidence
+under `~/bluecheese-evaluations/20261014-cnm99sk6/`. Their regenerated EVE identities
+and selected scopes differ from the original live runs. Eight recovered comparison
+reports complete, and 13 comparison/GUI/revision bundles verify. The normal GUI/API
+workflow preserves decisions, summaries, scope and revision history without work
+on reading/refresh; one explicit large-host revision completes.
+
+Two native DuckDB 1.5.0 crashes on a 5,405-record host scope led to a tested patch
+update to 1.5.6 in both package metadata and requirements.lock. A 5,500-record
+subprocess regression covers commit/retrieval/restart/export/raw preservation.
+Comparison settings record the DuckDB version. The provider prompt clarifies
+same-claim fact citations, with a regression preserving strict rejection.
+Final checks: 230 Python tests, 18 Chromium tests, Ruff, pip consistency and
+whitespace checks passed. See [the evaluation report](REAL_TRAFFIC_RESULTS.md)
+for actual timings, artifact-loss limits, a capture/reference discrepancy, test
+logs and remaining live retests. Earlier sections below are historical.
+
+---
+
 # Application host investigations and factual recovery — 2026-10-14
 
 This increment changes the actual evidence store, investigation runtime, provider

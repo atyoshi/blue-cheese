@@ -113,6 +113,47 @@ def test_correct_source_fact_and_retrieval_required(evidence):
         validate_facts({"claims": [claim]}, tools)
 
 
+def test_fact_cited_elsewhere_cannot_bypass_claim_validation(evidence):
+    from test_decision_advice import model_response
+
+    store, ids = evidence
+    calls = []
+
+    def transport(profile, payload, timeout):
+        calls.append(payload)
+        report = json.loads(
+            model_response({"selected_seed_id": ids[0]})["choices"][0]["message"][
+                "content"
+            ]
+        )
+        report["supporting_ids"].append(ids[2])
+        report["claims"][0]["facts"] = [
+            {"evidence_id": ids[2], "field": "status", "value": 101}
+        ]
+        report["claims"].append(
+            {
+                "text": "A GET response switched protocols.",
+                "citations": [ids[2]],
+                "proposition_type": "observation",
+                "limitations": [],
+                "contradicting_ids": [],
+            }
+        )
+        return complete(report)
+
+    provider = AgentModelProvider(ModelProfile("http://localhost/v1", "mock"), transport)
+    with pytest.raises(ValueError, match="own observation"):
+        investigate(
+            store,
+            *SCOPE,
+            provider=provider,
+            seed_event_id=ids[0],
+            max_calls=12,
+        )
+    # A citation failure cannot be silently repaired or passed to model review.
+    assert len(calls) == 1
+
+
 def test_targeted_retrieval_filters_before_row_and_byte_limits(evidence):
     store, ids = evidence
     # Use another source scope with many early, large unrelated alerts.

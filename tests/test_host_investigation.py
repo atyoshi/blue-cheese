@@ -1,6 +1,9 @@
 """Host investigation scope and recoverable model fact errors in the actual runtime."""
 
 import json
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -38,6 +41,76 @@ def http(method, path, destination="192.0.2.80"):
 
 def insert(store, record, position, source="sensor", scope=SCOPE):
     return store.insert(*scope, source, position, json.dumps(record).encode())
+
+
+def test_large_host_snapshot_survives_commit_retrieval_and_restart(tmp_path):
+    # Isolate native failures so a storage regression cannot terminate pytest.
+    script = textwrap.dedent(
+        """
+        import json
+        import sys
+        from pathlib import Path
+        from bluecheese.application.demo_runtime import DemoRuntime
+        from bluecheese.application.report_bundle import export_bundle, verify_bundle
+
+        root = Path(sys.argv[1])
+        eve = root / "observations.jsonl"
+        base = {
+            "timestamp": "2026-01-01T12:00:00+00:00", "flow_id": 1,
+            "src_ip": "10.0.0.5", "dest_ip": "192.0.2.1",
+            "src_port": 53000, "dest_port": 80, "proto": "TCP",
+        }
+        with eve.open("w") as stream:
+            for index in range(5500):
+                record = {**base, "event_type": "alert" if index % 2 else "http"}
+                record["alert"] = {"signature": "Review traffic", "severity": 2}
+                record["http"] = {
+                    "http_method": "POST", "status": 200, "length": index,
+                    "url": "/opaque/" + str(index) + ("\\x00Ω" * 300),
+                }
+                stream.write(json.dumps(record) + "\\n")
+        original = eve.read_bytes()
+        runtime = DemoRuntime(root / "state", load_fixtures=False)
+        runtime.configure_provider(None)
+        try:
+            runtime.command("import_file", eve, "live", "external")
+            seed = runtime.command(
+                "list_alerts", "live", "external", runtime.command("snapshot"), limit=1
+            )[0]["id"]
+            report = runtime.run(
+                "live", "external", seed_event_id=seed,
+                investigation_scope="host", max_calls=12, max_seconds=30,
+            )
+            saved = runtime.command("get_run", "live", "external", report["run_id"])
+            assert saved["record_count"] == 5500
+            assert saved["status"] == "COMPLETED"
+            export_bundle(runtime, report, root / "bundle")
+            assert verify_bundle(root / "bundle")["valid"]
+        finally:
+            runtime.close()
+        runtime = DemoRuntime(root / "state", load_fixtures=False)
+        try:
+            saved = runtime.command("get_run", "live", "external", report["run_id"])
+            assert saved["status"] == "COMPLETED" and saved["record_count"] == 5500
+            runtime.command("import_file", eve, "live", "external")
+            assert runtime.command("counts", "live", "external") == {
+                "accepted": 5500, "invalid": 0,
+            }
+            row = runtime.command("get_event", "live", "external", 5500, seed)
+            assert row["raw"].encode() == original.splitlines(keepends=True)[1]
+        finally:
+            runtime.close()
+        assert eve.read_bytes() == original
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-X", "faulthandler", "-c", script, str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_host_snapshot_includes_cross_destination_context_and_preserves_boundaries(

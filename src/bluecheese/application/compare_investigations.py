@@ -9,6 +9,8 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
+import duckdb
+
 from bluecheese.adapters.decision_provider import DecisionModelProvider
 from bluecheese.adapters.model_provider import ModelProfile, investigation_seconds
 from bluecheese.agents.reporting import markdown_report
@@ -80,6 +82,7 @@ def run_comparison(
         raise ValueError("Comparison time budget must be positive and finite")
     revision = application_revision()
     effective_settings = {
+        "duckdb_version": duckdb.__version__,
         "repetitions": repetitions,
         "max_calls": max_calls,
         "max_seconds": seconds,

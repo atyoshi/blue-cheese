@@ -1,5 +1,11 @@
 # Continue the real-traffic evaluation locally
 
+Local execution results are now recorded in [REAL_TRAFFIC_RESULTS.md](REAL_TRAFFIC_RESULTS.md).
+The campaign was interrupted after three rejected live runs and a fourth run whose
+outcome could not be recovered. The live allowance expired; durable offline
+recovery and focused fixes are documented there. The cloud handoff below is
+historical, and its statement that the live allowance is unused no longer applies.
+
 The authorized campaign plan is [the original request](evaluator/real_traffic_plan.md).
 Read it and AGENTS.md before continuing. The user's explicit authorization to
 download these four captures and run live models takes precedence over AGENTS.md's
