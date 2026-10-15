@@ -1,8 +1,13 @@
 import json
 
 import pytest
+from jsonschema import ValidationError, validate
 
-from bluecheese.adapters.agent_provider import AgentModelProvider, completion_endpoint
+from bluecheese.adapters.agent_provider import (
+    AgentModelProvider,
+    completion_endpoint,
+    schema_issue,
+)
 from bluecheese.adapters.model_provider import ModelProfile
 from bluecheese.application.demo_runtime import DemoRuntime
 
@@ -65,6 +70,20 @@ def profile():
         "investigator",
         api_key="test-secret",
     )
+
+
+def test_schema_correction_names_expected_rule_without_echoing_rejected_value():
+    rejected = ["safe", "safe", "do-not-echo-this"]
+    with pytest.raises(ValidationError) as error:
+        validate(rejected, {"type": "array", "maxItems": 2})
+
+    issue = schema_issue(error.value)
+    assert "maxItems=2" in issue
+    assert 'type="array"' in issue
+    assert "do-not-echo-this" not in issue
+
+    with pytest.raises(ValidationError):
+        validate(rejected, {"type": "array", "maxItems": 2})
 
 
 def test_agents_acquire_evidence_critic_revises_report_and_audit_is_saved(tmp_path):

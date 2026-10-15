@@ -118,3 +118,47 @@ def test_comparison_cli_exposes_scope():
         check=True,
     )
     assert "--scope {connection,host}" in result.stdout
+
+
+@pytest.mark.parametrize("retain", [False, True])
+def test_comparison_retains_rejections_separately_from_exports(tmp_path, retain):
+    from test_agent_provider import assessment, profile
+
+    from bluecheese.adapters.agent_provider import AgentModelProvider
+
+    calls = []
+
+    def transport(config, payload, timeout):
+        calls.append(payload)
+        context = json.loads(payload["messages"][1]["content"])
+        if len(calls) == 1:
+            return {
+                "choices": [
+                    {"finish_reason": "stop", "message": {"content": '"test-secret"'}}
+                ]
+            }
+        return assessment(context["selected_seed_id"])
+
+    provider = AgentModelProvider(profile(), transport, falsifier_model="reviewer")
+    out = tmp_path / "comparison"
+    result = run_comparison(
+        [Path(__file__).parent / "fixtures/sample_eve.json"],
+        out,
+        provider=provider,
+        repetitions=1,
+        retain_rejected_output=retain,
+    )
+    row = result["results"][0]
+    assert row["status"] == "COMPLETED"
+    assert row["provider_metrics"]["validations"]["SCHEMA_ERROR"] == 1
+    assert row["provider_metrics"]["roles"]["Falsifier"]["valid_response"]
+    assert provider.candidate_sink is None
+    files = list((out / "case-001" / "rejected-output").glob("*.json"))
+    assert len(files) == int(retain)
+    if retain:
+        assert "test-secret" not in files[0].read_text()
+        assert "[REDACTED]" in files[0].read_text()
+    bundle = out / row["bundle"]
+    assert verify_bundle(bundle)["valid"]
+    assert not list(bundle.rglob("rejected-output"))
+    assert "test-secret" not in json.dumps(result)

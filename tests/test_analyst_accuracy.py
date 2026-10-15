@@ -141,7 +141,9 @@ def test_fact_cited_elsewhere_cannot_bypass_claim_validation(evidence):
         )
         return complete(report)
 
-    provider = AgentModelProvider(ModelProfile("http://localhost/v1", "mock"), transport)
+    provider = AgentModelProvider(
+        ModelProfile("http://localhost/v1", "mock"), transport
+    )
     with pytest.raises(ValueError, match="own observation"):
         investigate(
             store,
@@ -295,6 +297,68 @@ def test_schema_correction_is_constrained_and_bounded(evidence):
     assert report["provider_activity"]["turns"][0]["validation_issue"].startswith(
         "Schema rule: /"
     )
+
+
+@pytest.mark.parametrize("repair", [True, False])
+def test_fact_count_correction_supplies_bound_and_retains_strict_rejection(
+    evidence, repair
+):
+    store, ids = evidence
+    requests = []
+    invalid = assessment(ids[0])
+    invalid.pop("verdict")
+    invalid["findings"] = {
+        "activity_assessment": "INSUFFICIENT_EVIDENCE",
+        "observed_impact": {
+            "status": "UNCONFIRMED",
+            "description": "Intent unknown.",
+            "citations": [ids[0]],
+        },
+        "evidence_completeness": "Bounded evidence.",
+        "recommended_checks": [],
+    }
+    invalid["claims"][0].update(
+        proposition_type="observation",
+        limitations=[],
+        contradicting_ids=[],
+        facts=[{"evidence_id": ids[0], "field": "event_type", "value": "alert"}] * 3,
+    )
+
+    def transport(profile, payload, timeout):
+        requests.append(payload)
+        if len(requests) == 2:
+            guidance = payload["messages"][-2]["content"]
+            assert "facts/maxItems" in guidance
+            assert "maxItems=2" in guidance
+            assert "No new tools" in guidance
+            assert "tools" not in payload
+            if repair:
+                return complete(assessment(ids[0]))
+        return complete(invalid)
+
+    def run():
+        return investigate(
+            store,
+            *SCOPE,
+            seed_event_id=ids[0],
+            max_calls=8,
+            max_seconds=1800,
+            falsification=False,
+            provider=AgentModelProvider(
+                ModelProfile("http://localhost/v1", "mock", timeout=300),
+                transport,
+                max_attempts=4,
+            ),
+        )
+
+    if repair:
+        result = run()
+        assert result["run_status"] == "COMPLETED"
+        assert result["provider_activity"]["turns"][0]["validation"] == "SCHEMA_ERROR"
+    else:
+        with pytest.raises(ValueError, match="report schema"):
+            run()
+    assert len(requests) == 2
 
 
 def test_invalid_citation_is_not_repaired_by_another_model_request(evidence):

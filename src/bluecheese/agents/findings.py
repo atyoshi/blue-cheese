@@ -183,10 +183,9 @@ def validate_facts(report, tools):
             tools.validate([event_id])
             if event_id not in claim["citations"]:
                 raise ValueError("A source fact must cite its own observation")
-            n = model_observation(tools.retrieved[event_id])["normalized"]
             field = fact["field"]
-            actual = (
-                n.get(field) if field in n else n.get("protocol_details", {}).get(field)
+            actual = observation_fact(
+                model_observation(tools.retrieved[event_id]), field
             )
             if (
                 actual is None
@@ -194,6 +193,16 @@ def validate_facts(report, tools):
                 or actual != fact["value"]
             ):
                 raise SourceFactConflict(event_id, field, actual)
+
+
+def observation_fact(observation, field):
+    """One projection for catalog values and strict source-fact validation."""
+    normalized = observation["normalized"]
+    return (
+        normalized[field]
+        if field in normalized
+        else normalized.get("protocol_details", {}).get(field)
+    )
 
 
 def validate_findings(report, tools):

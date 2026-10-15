@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -13,6 +14,7 @@ import duckdb
 
 from bluecheese.adapters.decision_provider import DecisionModelProvider
 from bluecheese.adapters.model_provider import ModelProfile, investigation_seconds
+from bluecheese.adapters.rejected_output import RejectedOutputSink
 from bluecheese.agents.reporting import markdown_report
 from bluecheese.application.demo_runtime import DemoRuntime
 from bluecheese.application.report_bundle import export_bundle, verify_bundle
@@ -49,9 +51,37 @@ def application_revision():
             capture_output=True,
             timeout=10,
         ).stdout
+        untracked = (
+            subprocess.run(
+                [
+                    "git",
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    "src",
+                ],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+            .stdout.decode()
+            .split("\0")
+        )
+        source_hashes = {
+            name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+            for name in sorted(untracked)
+            if name and (root / name).is_file()
+        }
     except (OSError, subprocess.SubprocessError):
         return {"commit": None, "tracked_diff_sha256": None}
-    return {"commit": commit, "tracked_diff_sha256": hashlib.sha256(patch).hexdigest()}
+    return {
+        "commit": commit,
+        "tracked_diff_sha256": hashlib.sha256(patch).hexdigest(),
+        "untracked_source_sha256": source_hashes,
+    }
 
 
 def run_comparison(
@@ -66,6 +96,7 @@ def run_comparison(
     seed_event_id=None,
     investigation_scope="connection",
     progress=None,
+    retain_rejected_output=False,
 ):
     if investigation_scope not in ("connection", "host"):
         raise ValueError("Investigation scope must be connection or host")
@@ -75,6 +106,10 @@ def run_comparison(
         raise ValueError("Use 1..10 repetitions and 3..100 retrieval calls")
     if seed_event_id and len(eve_paths) != 1:
         raise ValueError("An explicit seed requires exactly one EVE file")
+    if retain_rejected_output and not hasattr(provider, "candidate_sink"):
+        raise ValueError(
+            "Rejected output retention requires a tool-using model provider"
+        )
     seconds = (
         max_seconds if max_seconds is not None else investigation_seconds(provider)
     )
@@ -95,6 +130,15 @@ def run_comparison(
         "enable_thinking": provider.profile.enable_thinking if provider else None,
         "independent_falsifier": hasattr(provider, "falsifier_model"),
         "falsifier_model": getattr(provider, "falsifier_model", None),
+        "retain_rejected_output": retain_rejected_output,
+        "response_mode": "json_object"
+        if getattr(provider, "json_mode", False)
+        else "json_schema"
+        if provider
+        else None,
+        "allocation_policy": "shared-final-reservation-v1"
+        if hasattr(provider, "candidate_sink")
+        else None,
     }
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=False)
@@ -107,6 +151,15 @@ def run_comparison(
         with Path(eve).open("rb") as source:
             evidence_hash = hashlib.file_digest(source, "sha256").hexdigest()
         runtime = DemoRuntime(root / "state", load_fixtures=False)
+        previous_sink = getattr(provider, "candidate_sink", None)
+        if retain_rejected_output:
+            provider.candidate_sink = RejectedOutputSink(
+                root / "rejected-output",
+                secrets=(
+                    provider.profile.api_key,
+                    os.environ.get(provider.profile.api_key_env, ""),
+                ),
+            )
         try:
             runtime.command("import_file", eve, "live", "external")
             counts = runtime.command("counts", "live", "external")
@@ -191,6 +244,9 @@ def run_comparison(
                                 for event in events
                             ),
                             model_usage=None,
+                            provider_metrics=provider_metrics(
+                                details.get("provider_diagnostics") or {}
+                            ),
                             advice_status=(details.get("decision_advice") or {}).get(
                                 "status", "DISABLED"
                             ),
@@ -251,6 +307,7 @@ def run_comparison(
                         model_usage=[
                             turn.get("usage") for turn in activity.get("turns", [])
                         ],
+                        provider_metrics=provider_metrics(activity),
                     )
                     results.append(entry)
                     if progress:
@@ -266,6 +323,8 @@ def run_comparison(
                     break
         finally:
             runtime.close()
+            if retain_rejected_output:
+                provider.candidate_sink = previous_sink
         if interrupted:
             break
     summaries = []
@@ -332,6 +391,48 @@ def run_comparison(
     return artifact
 
 
+def provider_metrics(activity):
+    """Small, equally available completion/failure metrics; no candidate prose."""
+    turns = activity.get("turns", [])
+    return {
+        "allocation_policy": activity.get("allocation_policy"),
+        "budget_stop": activity.get("budget_stop"),
+        "stages": activity.get("stages", []),
+        "validations": dict(
+            Counter(turn.get("validation", "NOT_ASSESSED") for turn in turns)
+        ),
+        "roles": {
+            role: {
+                "calls": sum(turn["role"] == role for turn in turns),
+                "request_seconds": sum(
+                    turn.get("duration_seconds", 0)
+                    for turn in turns
+                    if turn["role"] == role
+                ),
+                "validation_seconds": sum(
+                    turn.get("validation_seconds", 0)
+                    for turn in turns
+                    if turn["role"] == role
+                ),
+                "retention_seconds": sum(
+                    turn.get("retention_seconds", 0)
+                    for turn in turns
+                    if turn["role"] == role
+                ),
+                "input_bytes": [
+                    turn["input_bytes"] for turn in turns if turn["role"] == role
+                ],
+                "valid_response": any(
+                    stage.get("completed", False)
+                    for stage in activity.get("stages", [])
+                    if stage["role"] == role
+                ),
+            }
+            for role in ("Investigator", "Falsifier")
+        },
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--eve", type=Path, action="append", required=True)
@@ -356,6 +457,11 @@ def main():
     parser.add_argument("--max-seconds", type=float)
     parser.add_argument("--seed-id")
     parser.add_argument("--scope", choices=("connection", "host"), default="connection")
+    parser.add_argument(
+        "--retain-rejected-output",
+        action="store_true",
+        help="Opt in to bounded, locally redacted rejected prose outside state and bundles",
+    )
     parser.add_argument(
         "--model-attempts",
         type=int,
@@ -384,6 +490,7 @@ def main():
         max_seconds=args.max_seconds,
         seed_event_id=args.seed_id,
         investigation_scope=args.scope,
+        retain_rejected_output=args.retain_rejected_output,
         progress=lambda event: print(json.dumps(event), flush=True),
     )
     print(

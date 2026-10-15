@@ -1,3 +1,115 @@
+# Matched live campaign running in the background — 2026-10-15 UTC
+
+The user authorized the 14-hour / 24-investigation / maximum-144-provider-request
+campaign, then explicitly requested independent background continuation through
+Codex usage interruptions, with review later. Existing Qwen model/settings and
+frozen baseline/candidate are unchanged. No new captures or models were downloaded.
+
+Durable campaign: `/Users/yoshi/bluecheese-evaluations/20261015-matched-0543/`.
+First provider request: **2026-10-15 05:44:54.744780 UTC**.
+Original deadline: **2026-10-15 19:44:54.744780 UTC**. Pauses and restarts do not
+reset it. A detached supervisor (initial PID 19623) owns the serial schedule.
+`status.json` and `ledger.jsonl` record actual progress/request starts; results and
+trial logs persist outside Git. Do not infer completion from this handoff.
+
+Preflight verified 189 immutable recovered-archive checksum entries (mutable
+`ui-server.log` excluded), prepared source/check artifacts, matching requirements
+locks, frozen source imports and unchanged safe provider settings. Six offline
+supervisor tests passed, including deadline/call caps, incomplete-ledger rejection,
+interrupted-trial recovery and duplicate-supervisor exclusion. VPN connectivity
+was restored before the first model request; non-model checks consumed zero model
+requests. The 278 Python / 18 Chromium checks below apply to frozen platform code.
+
+The supervisor checks connectivity before each trial, persists request starts
+before sending, caps request timeout by the original campaign deadline, and
+rechecks source hashes. If connectivity drops it waits without model probes;
+clock time continues. A supervisor/child ownership lock prevents duplicate runs.
+After process loss, only unstarted schedule entries resume; interrupted/ambiguous
+requests stay consumed and interrupted trials are not replayed. Reports generated
+by the supervisor contain mechanical results only; semantic acceptance and release
+gates remain pending source review. No mid-campaign platform changes are permitted.
+
+To inspect progress, read the campaign's `status.json`, `ledger.jsonl`,
+`supervisor.log`, per-trial logs, and eventual `REPORT.md` / `scorecard.json`.
+If the supervisor has stopped, resume its original bounds with:
+
+```bash
+/Users/yoshi/blue-cheese/.venv/bin/python \
+  /Users/yoshi/bluecheese-evaluations/20261015-matched-0543/tools/supervisor.py \
+  --campaign /Users/yoshi/bluecheese-evaluations/20261015-matched-0543
+```
+
+A second supervisor is rejected while any existing supervisor/trial owns the
+lock. Expired allowance is not renewed by resuming. If a process or machine stops,
+review the saved ledger and current phase before any further action. After live
+work finishes, source-review all completed reports, verify bundles and matching,
+apply the [semantic gates](LIVE_LLM_MATCHED_EVALUATION.md), review normal GUI cases,
+and write the actual final report. Do not claim human time savings or accuracy.
+
+---
+
+# Investigation reliability increment — offline verified
+
+Implemented schema-derived final/correction guides, a bounded typed fact catalog,
+role-delivered model citation checks, flexible Investigator/Falsifier allocation,
+one shared correction per role, explicit local-processing deadline checks and
+opt-in rejected-output retention separate from state/APIs/bundles. At six calls,
+Investigator may use four and preserves two for independent review; unused calls
+transfer. No model budgets, schema limits, HTTP retries or response modes changed.
+
+**278 Python tests passed**, **18 Chromium tests passed**, Ruff and whitespace
+checks passed. One existing Starlette test-client deprecation warning remains.
+The final Python run followed the delivery-boundary correction; browser checks
+cover the unchanged normal interface. Initial sandbox socket restrictions were
+resolved by rerunning the affected suites with local-socket permission.
+Five matched offline allocation scripts yielded four baseline completions and
+five candidate completions, with no allocation regression in those scripts.
+This does not measure real-model quality, latency or detection accuracy.
+
+Pre-change baseline sources/hash metadata, candidate freeze, allocation results,
+final test logs and a fixed 24-trial live schedule are in ignored
+`build/verification/reliability/`. All four archived seed/EVE hashes were checked.
+The baseline includes the prior uncommitted correction-guidance fix. Existing
+user changes are preserved; this increment remains uncommitted.
+
+See [implementation and retention behavior](INVESTIGATION_RELIABILITY.md) and
+[matched live evaluation](LIVE_LLM_MATCHED_EVALUATION.md). The planned 14-hour,
+24-investigation / maximum-144-request campaign requires separate authorization;
+no live requests or operator messages were sent. Semantic release gates remain
+unmeasured. Failed trials will remain in denominators; latency has no invented
+failure penalty. Earlier campaign history follows unchanged.
+
+---
+
+# Recovered-evidence live rerun completed — 2026-10-15 UTC
+
+The fresh campaign started from clean main `14beb049` at 01:58:22 UTC with a
+04:58:22 UTC deadline. Four ordered pilots and two stage 02 reruns completed
+within the allowance, retaining all 31 model calls and failures durably at
+`~/bluecheese-evaluations/20261015-live-rerun-0158/`.
+
+Stage 01 completed mechanically in 607.8 seconds and its 67-record bundle
+verified. Stages 02/03 failed schema boundaries; stage 04 failed provider parser
+HTTP 500. The requested stage 02 repeat failed schema validation; a narrow
+schema-correction guidance change and same-seed retest then reached the Falsifier
+but failed a URL fact bound to a DNS record. Strict validation remains enabled.
+All trial EVE hashes, seeds, snapshot digests and actual memberships match the
+recovered rules-host cases. These are separate from the lost original snapshots.
+
+Manual review supports stage 01's source fields but flags imprecise HTTP byte
+wording and a flawed TLS disconfirmation proposal; full semantic acceptance is
+not established. Native Firefox review confirmed normal completed/failed cases,
+real operations, cited findings/limits, Open disposition and Markdown export;
+reading/refresh started no work. No analyst decision or GUI chat was made.
+
+47 focused tests passed; Ruff and whitespace checks passed. Implementation and
+project-log updates remain uncommitted on main; campaign artifacts stay outside
+Git. See [actual rerun results](LIVE_LLM_RERUN_RESULTS.md) and
+[next steps and possible fixes](LIVE_LLM_NEXT_STEPS.md). Provider reliability,
+semantic quality, detection accuracy and analyst time savings remain open.
+
+---
+
 # Main-branch fixes and next live campaign handoff — 2026-10-14
 
 The progressive-evaluation fixes and their regression coverage are being landed

@@ -256,15 +256,30 @@ def test_fact_correction_preserves_rejection_and_reserves_independent_review(
                 assert "affected prose" in payload["messages"][-2]["content"]
             return complete(report)
 
-        report = runtime.run(
-            *SCOPE,
-            seed_event_id=seed,
-            max_calls=8,
-            provider=AgentModelProvider(
-                ModelProfile("http://localhost/v1", "mock"), transport, max_attempts=4
-            ),
-        )
-        assert len(calls) == 3 + int(malformed_first)
+        def run():
+            return runtime.run(
+                *SCOPE,
+                seed_event_id=seed,
+                max_calls=8,
+                provider=AgentModelProvider(
+                    ModelProfile("http://localhost/v1", "mock"),
+                    transport,
+                    max_attempts=4,
+                ),
+            )
+
+        if malformed_first:
+            # Schema and fact errors share one correction; a second invalid output fails.
+            with pytest.raises(ValueError, match="Source fact conflicts"):
+                run()
+            assert len(calls) == 2
+            saved = runtime.command("list_runs", *SCOPE)[0]
+            detail = runtime.command("get_run", *SCOPE, saved["run_id"])
+            stage = detail["provider_diagnostics"]["stages"][0]
+            assert stage["correction_unavailable"] == "ALREADY_USED"
+            return
+        report = run()
+        assert len(calls) == 3
         assert (
             report["provider_activity"]["turns"][int(malformed_first)]["validation"]
             == "SOURCE_FACT_ERROR"

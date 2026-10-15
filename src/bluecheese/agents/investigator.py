@@ -163,10 +163,13 @@ class EvidenceTools:
             (delivered[0] if delivered else None) if tool == "get_event" else delivered
         )
 
-    def validate(self, ids):
+    def validate(self, ids, *, model_role=None):
         for event_id in ids:
             if event_id not in self.retrieved:
                 raise ValueError(f"Invented, cross-case or unseen citation: {event_id}")
+            delivered = getattr(self, "role_delivered", {}).get(model_role)
+            if delivered is not None and event_id not in delivered:
+                raise ValueError(f"Citation not delivered to this role: {event_id}")
             if self.store.get_event(*self.scope, event_id) is None:
                 raise ValueError(f"Citation outside fixed snapshot: {event_id}")
 

@@ -26,3 +26,4 @@ config.json
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
+rejected-output/

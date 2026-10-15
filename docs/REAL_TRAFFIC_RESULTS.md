@@ -1,3 +1,39 @@
+# Fresh recovered-evidence live rerun — 2026-10-15 UTC
+
+The authorized fresh campaign executed all four ordered pilots, a requested
+stage 02 repeat and a same-seed retest after one narrow correction-guidance fix.
+All six trials retained the original required Qwen model/settings and completed
+before the unchanged 04:58:22 UTC deadline (start 01:58:22 UTC). All 31 model calls
+and failed states are durable at
+`~/bluecheese-evaluations/20261015-live-rerun-0158/`.
+
+| Trial | Outcome | Seconds / model calls |
+| --- | --- | --- |
+| 01 | Completed; bundle verifies 67 referenced records | 607.802 / 6 |
+| 02 | Falsifier schema text-length failure | 660.051 / 6 |
+| 03 | Investigator schema/report-shape and fact-count failures | 496.914 / 3 |
+| 04 | Falsifier native provider output-parser HTTP 500 | 707.060 / 6 |
+| 02 requested repeat | Investigator fact-count/type failures | 377.487 / 4 |
+| 02 after guidance fix | Falsifier URL binding conflicts with DNS source record | 586.560 / 6 |
+
+Every trial matches its recovered rules-host EVE SHA, seed, snapshot digest and
+actual sorted membership. Advice stayed `NOT_CONFIGURED`. Stage 01 concrete
+source fields are supported, but manual review flags HTTP response-length wording
+and a TLS disconfirmation proposal; mechanical completion is not full semantic
+acceptance. The new correction guidance supplies trusted expected type/bounds;
+its offline regressions pass, while live benefit remains unverified because the
+post-fix run did not invoke schema correction. Citation/fact rejection is intact.
+
+Normal GUI review covered completed and failed cases, recorded operations,
+findings/limits, Open disposition and completed Markdown export. Refresh started
+no work. No analyst decision or GUI chat was made. 47 focused tests, Ruff and
+whitespace checks passed; no new full-suite result is claimed. See
+[detailed outcomes](LIVE_LLM_RERUN_RESULTS.md) and
+[multiagent next steps](LIVE_LLM_NEXT_STEPS.md). Historical results below are
+preserved; detection accuracy, calibration and human time savings remain unmeasured.
+
+---
+
 # Progressive real-traffic evaluation — 2026-10-14
 
 Four authentic Malware Traffic Analysis PCAPs were processed offline with
